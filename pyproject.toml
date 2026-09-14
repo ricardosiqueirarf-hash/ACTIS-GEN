@@ -12,6 +12,7 @@ license = {text = "MIT"}
 authors = [{name = "Ricardo"}]
 dependencies = [
   "agent-framework>=1,<2",
+  "agent-framework-openai>=1,<2",
   "python-dotenv>=1,<2",
 ]
 
