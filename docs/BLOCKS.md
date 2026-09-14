@@ -1,82 +1,36 @@
 # Implementation blocks
 
-We will evolve the harness in isolated blocks. A block only starts after the previous block has explicit contracts and tests.
+## Completed: foundation and first execution slice
 
-## Block 0 — Foundation
+- Reference upstream submodule and documented responsibility boundaries.
+- Published MAF core/OpenAI packages, independent of the submodule checkout.
+- Minimal request/result/error/usage contracts and runtime adapter protocol.
+- `Harness.run` with deadline, cancellation and lifecycle logging.
+- MAF adapter and 9Router client/configuration boundary.
+- Catalog discovery, direct completion and MAF smoke stages.
+- Deterministic contract and real-adapter HTTP-fixture tests.
 
-Goal: establish repository boundaries, pin Microsoft Agent Framework (MAF) as upstream infrastructure and select 9Router as the default local model/provider gateway.
+This combines the useful portions of the previous Contracts and Local Model
+Gateway blocks. Unused interface placeholders were deliberately deferred.
 
-Deliverables:
-- MAF pinned under `upstream/agent-framework` as a git submodule.
-- 9Router selected as default local model/provider gateway.
-- Clear dependency direction.
-- Minimal Python package skeleton.
-- Architecture documentation.
+## Next: capability registry and explicit routing
 
-No domain logic belongs in Block 0.
+Add a small registry where an external domain registers a named capability and its
+handler. Route by an explicit domain/capability identifier first. Required tests:
+duplicate registration, unknown capability, isolation between domains and stable
+error results. Only introduce model-based routing after a real use case needs it.
 
-## Block 1 — Contracts
+Do not create ACTIS business rules inside core or make WhatsApp an input transport
+of the harness. ACTIS owns capture and business state and calls the public contract.
 
-Define framework-independent interfaces used by all later blocks:
-- `HarnessRequest`
-- `HarnessResult`
-- `ExecutionContext`
-- `Capability`
-- `Domain`
-- `Tool`
-- `PolicyDecision`
-- `VerificationResult`
-- runtime adapter protocol
-- model gateway protocol
-- model request/result contracts
+## Subsequent blocks, driven by real consumers
 
-Rule: public core contracts must not import MAF or 9Router-specific classes.
+1. State/context references and explicit session boundaries.
+2. Validated tool execution, side-effect classification and idempotency.
+3. Policy decisions and human approvals for critical actions.
+4. Verification/recovery with bounded retry rules and observable outcomes.
+5. Durable events/audit storage when lifecycle logging is insufficient.
+6. First ACTIS integration using a real structured task.
 
-## Block 2 — Local Model Gateway
-
-Build the first vertical integration through 9Router:
-- `ModelGateway` implementation that talks to the local OpenAI-compatible 9Router API;
-- configurable `NINEROUTER_BASE_URL`;
-- `NINEROUTER_API_KEY` generated/copied from the local 9Router dashboard;
-- explicit model selection;
-- model/provider selection and fallback delegated to 9Router when configured there;
-- normalized model results/errors;
-- first end-to-end test through MAF -> 9Router -> connected model/provider.
-
-9Router routes models/providers only. It does not replace the harness Global Router.
-
-## Block 3 — Capability and Domain registries
-
-Domains declare capabilities. The general harness discovers capabilities without hardcoding ACTIS, research or any future operational domain.
-
-## Block 4 — Global Router
-
-Route request -> domain -> capability -> execution path. Domain-local routers remain inside each domain. Model/provider selection may then be delegated to the 9Router gateway.
-
-## Block 5 — State and Context
-
-Sessions, execution context, state references, memory providers and context assembly.
-
-## Block 6 — Tools and Execution
-
-Tool registry, validated execution, idempotency and normalized results.
-
-## Block 7 — Policies and Autonomy
-
-Global policy pipeline, domain policies, approvals and autonomy levels.
-
-## Block 8 — Verification and Recovery
-
-`plan -> act -> verify -> recover`, including retries, fallback and semantic verification contracts.
-
-## Block 9 — Events and Audit
-
-Domain-neutral event envelope, event bus adapter and complete execution audit trail.
-
-## Block 10 — First real domain
-
-ACTIS becomes the first domain implementation without leaking business concepts into the general core.
-
-## Explicitly out of scope
-
-Coding-agent orchestration, Codex CLI integration and IDE automation are not part of the current `meuharness` roadmap. Development is performed externally through the user's IDE / ChatGPT workflow.
+Each block needs a concrete consumer, small contracts and tests. Coding-agent
+orchestration, Codex CLI and IDE automation remain outside this roadmap.

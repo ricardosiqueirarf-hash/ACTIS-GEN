@@ -1,107 +1,55 @@
 # Architecture
 
-## Layering
+Generalize infrastructure; specialize knowledge, state, tools and business rules.
 
-```text
-+--------------------------------------------------+
-| Software / domain features                       |
-| ACTIS / research / future operational apps       |
-+-------------------------+------------------------+
-                          |
-                          v
-+--------------------------------------------------+
-| meuharness general core                          |
-| contracts / global router / capabilities         |
-| policies / events / verification / state refs    |
-+-------------------------+------------------------+
-                          |
-                          v
-+--------------------------------------------------+
-| Runtime adapter boundary                         |
-| `adapters/maf` today; other runtimes may exist   |
-+-------------------------+------------------------+
-                          |
-                          v
-+--------------------------------------------------+
-| Microsoft Agent Framework                        |
-| agents / workflows / harness / middleware / HITL |
-| tools / checkpoints / runtime                    |
-+-------------------------+------------------------+
-                          |
-                          v
-+--------------------------------------------------+
-| Local model/provider gateway                     |
-| 9Router — OpenAI-compatible API                  |
-+-------------------------+------------------------+
-                          |
-             +------------+-------------+----------------+
-             |                          |                |
-             v                          v                v
-       OAuth providers            API-key providers   OpenRouter ...
-```
+## Current execution path
 
-Software development through IDEs and ChatGPT is intentionally outside this architecture. `meuharness` exists for agent execution inside software products and operational domains, not for coding automation.
+The application creates a `HarnessRequest` and calls `Harness.run`. The core applies
+a deadline and records lifecycle events. `RuntimeAdapter` is the replaceable
+boundary; today its implementation is `MAFRuntime`. MAF uses a fresh
+OpenAI-compatible client created by the configured gateway. 9Router owns provider
+authentication, model routing and its own fallback policy.
 
-## Router responsibilities
+| Layer | Current responsibility |
+|---|---|
+| Calling software/domain | Task, context, instructions, operational state and UX |
+| `core` | Request/result/error contracts, deadline, correlation and lifecycle |
+| `adapters/maf` | MAF agent creation, message/options translation, runtime lifecycle |
+| `providers/nine_router` | Gateway settings, SDK factory, catalog/direct diagnostic requests |
+| `providers/openai_errors.py` | Shared SDK exception classification without raw bodies |
+| `bootstrap.py` | Explicit composition of the core, chosen runtime and gateway |
+| External 9Router | Provider OAuth/API credentials, upstream routing and fallback |
 
-There are two different routing layers and they must not be conflated:
+Only `Harness.run` is implemented in the public execution API. The global router,
+registry, persistent state, tool policies, approvals and verification workflows
+remain future blocks. The smoke CLI adds a narrow connectivity verifier.
 
-1. **Global Router — owned by meuharness**
-   - chooses domain;
-   - chooses capability;
-   - chooses execution path/runtime;
-   - decides whether a task should use a model, workflow or tool.
+## Dependency rules
 
-2. **Model/provider gateway — 9Router**
-   - exposes one local OpenAI-compatible endpoint to the harness;
-   - owns provider connections and credentials configured in 9Router;
-   - may route/fallback across connected models/providers;
-   - hides provider-specific authentication details from `meuharness`.
+1. Core never imports domains, MAF, provider SDKs or concrete gateways.
+2. Domains use public contracts; they never import MAF directly.
+3. All production MAF imports remain inside `adapters/maf`.
+4. 9Router-specific settings and HTTP access belong in `providers/nine_router`.
+5. SDK-specific client factory types stay outside core; avoid an abstraction whose
+   public return type exposes a vendor SDK.
+6. Provider OAuth sessions and upstream keys remain inside 9Router. The application
+   receives only the gateway key and does not inspect its provider database.
+7. The upstream submodule is a reference. Application runtime dependencies are
+   reviewed published packages, not editable submodule installations.
+8. Business/domain vocabulary does not belong in general infrastructure.
 
-9Router does not replace domain routing or software-specific behavior.
+## Two routing responsibilities
 
-## Non-negotiable dependency rules
+The future **global router** chooses domain, capability and execution path.
+The existing **9Router gateway** chooses model/provider routes according to its
+configuration. These are different responsibilities.
 
-1. `core` never imports a domain.
-2. `core` never imports Microsoft Agent Framework directly.
-3. Domains depend only on public `meuharness` contracts and domain-owned code.
-4. Direct MAF imports are restricted to `src/meuharness/adapters/maf/` and MAF-specific integration tests.
-5. 9Router-specific gateway code is restricted to `src/meuharness/providers/nine_router/` and gateway integration tests.
-6. Provider OAuth sessions and API keys are not stored in the general core; they are managed by 9Router or the provider-specific system behind it.
-7. Upstream MAF source is read-only from our architecture's point of view. Changes to MAF must be made upstream or in our adapter, not as hidden local edits.
-8. Business/domain nouns do not belong in the general core.
-9. Coding-agent responsibilities do not belong in the general core or in a dedicated coding domain unless scope changes explicitly in the future.
+## ACTIS boundary
 
-## Why MAF is a submodule
+ACTIS is a separate software product. It captures WhatsApp messages, manages its
+local database and operational state, assembles context, then asks the harness to
+perform a structured task. The harness does not capture WhatsApp or own ACTIS
+customers, orders, payments or Kanban rules.
 
-The Microsoft repository is intentionally not copied into our source tree. Pinning it as a submodule gives us:
-
-- exact upstream commit reproducibility;
-- clean ownership boundaries;
-- simple upstream updates;
-- no accidental mixing of Microsoft code with our own;
-- the ability to replace the runtime adapter in the future.
-
-## Ownership
-
-### MAF owns
-
-Agent/runtime primitives, workflows, checkpoints, middleware execution, tool calling primitives, human-in-the-loop primitives and runtime lifecycle.
-
-### 9Router owns
-
-Local model/provider gateway responsibilities: one OpenAI-compatible endpoint, provider authentication/connectivity, model/provider routing and fallback according to its configuration.
-
-OpenRouter may exist behind 9Router as one optional provider, but `meuharness` does not depend on OpenRouter directly.
-
-### meuharness core owns
-
-Stable runtime-independent contracts, global routing, capability discovery, global policy composition, domain registry, event contracts and semantic verification interfaces.
-
-### domains/apps own
-
-Business/domain state, vocabulary, domain tools, domain routing details, domain policies, domain verifiers, domain-specific prompts/agents and software features that collect or organize domain context.
-
-### external development workflow owns
-
-IDE usage, repository editing, ChatGPT-assisted coding and other software-development activities. These are consumers/builders of the software, not responsibilities of `meuharness`.
+The IDE/ChatGPT workflow is used to develop this infrastructure. Building a coding
+agent, Codex CLI wrapper or IDE orchestrator is outside the current scope.

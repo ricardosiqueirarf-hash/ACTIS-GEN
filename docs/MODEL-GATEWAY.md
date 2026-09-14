@@ -1,105 +1,42 @@
-# Model Gateway
+# Model gateway
 
-## Decision
+9Router is an external local model/provider gateway. It exposes the
+OpenAI-compatible endpoint `http://127.0.0.1:20128/v1` and owns upstream connections,
+OAuth credentials, provider routing and fallback.
 
-9Router is the default local model/provider gateway for `meuharness`.
+The harness receives a gateway URL, gateway API key and explicit model ID. It
+does not read provider tokens or reproduce authentication logic. OpenRouter may
+exist behind 9Router as a provider, but it is not a direct harness dependency.
 
-It is responsible for provider access, authentication aggregation and model/provider routing behind one local OpenAI-compatible API. It is **not** the harness Global Router.
+## Implemented boundary
 
-```text
-software/domain
-      |
-      v
-meuharness Global Router
-      |
-      v
-MAF runtime / workflow
-      |
-      v
-ModelGateway
-      |
-      v
-9Router local API
-      |
-  +---+-------------+----------------+
-  v                 v                v
-OAuth providers   API-key providers  OpenRouter ...
-```
+`NineRouterSettings` validates configuration without displaying its key.
+`NineRouterGateway.open_client()` creates the SDK client consumed by the MAF
+adapter. `list_models()` and `complete()` are independent diagnostic operations.
+Application execution remains `Harness.run -> MAFRuntime -> MAF -> 9Router`.
 
-## Responsibilities
+Every SDK client has an explicit timeout and no automatic retries. The harness
+additionally limits overall execution. Error classification inspects exception
+causes and HTTP status, never provider-specific message substrings.
 
-### 9Router
+## Model selection
 
-- expose a local OpenAI-compatible API;
-- keep provider authentication/configuration outside `meuharness`;
-- connect OAuth-capable providers supported by 9Router;
-- connect API-key providers supported by 9Router;
-- expose connected models through a common model API;
-- perform model/provider routing and fallback according to its configuration.
+Use the returned `/v1/models` IDs exactly. No model is guessed or silently selected
+in code. Catalog presence does not guarantee that the connected account is
+authorized or has quota. Test direct completion before attributing a failure to
+MAF. The CLI's `--model` option makes an explicit temporary override.
 
-### meuharness Global Router
+A fresh installation may leave the default model blank while using
+`meuharness-smoke --list-models`; execution requires a selected model.
+The tested local default and provider incident are recorded in
+`docs/DIAGNOSTIC-2026-09-14.md`, not hardcoded into the library.
 
-- domain selection;
-- capability selection;
-- execution-path selection;
-- runtime/tool selection;
-- policy-aware routing.
+## Configuration precedence
 
-### MAF
+1. CLI model/timeout overrides for the diagnostic invocation.
+2. Process environment.
+3. Explicit `.env` file, or current directory `.env` when omitted.
+4. Built-in gateway URL and 30-second timeout defaults.
 
-- agent and workflow execution;
-- tool loops;
-- middleware;
-- checkpoints;
-- HITL;
-- runtime lifecycle.
-
-## Local endpoint boundary
-
-The default gateway endpoint is configured as:
-
-```text
-NINEROUTER_BASE_URL=http://127.0.0.1:20128/v1
-```
-
-The harness also receives a 9Router API key copied/generated from the local 9Router dashboard:
-
-```text
-NINEROUTER_API_KEY=...
-```
-
-`meuharness` does not store provider OAuth credentials directly. Those credentials stay behind the 9Router boundary.
-
-## OpenRouter relationship
-
-OpenRouter is no longer the direct gateway used by `meuharness`. If desired, it can be configured as one provider behind 9Router.
-
-The dependency is therefore:
-
-```text
-meuharness -> MAF -> 9Router -> provider
-```
-
-and optionally:
-
-```text
-meuharness -> MAF -> 9Router -> OpenRouter -> upstream model/provider
-```
-
-## Coding is outside this layer
-
-`meuharness` does not orchestrate Codex CLI or other coding agents in the current scope. Software development is performed externally through the user's IDE / ChatGPT workflow. 9Router exists here as the model/provider gateway for software agents and operational domains that run through `meuharness`.
-
-## First target
-
-The first functional vertical slice should be:
-
-```text
-HarnessRequest
-    -> MAF adapter
-    -> 9Router ModelGateway
-    -> connected model/provider
-    -> normalized HarnessResult
-```
-
-Only after this path is tested should automatic domain/capability routing be added.
+The API key has no built-in default. Only `./.env` is considered automatically;
+the library does not search parent directories for another application's secrets.

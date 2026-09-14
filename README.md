@@ -1,70 +1,89 @@
 # meuharness
 
-General-purpose agent harness built as a thin, stable layer on top of the Microsoft Agent Framework (MAF), with 9Router as the default local model/provider gateway.
+A small, general-purpose execution layer for software that needs AI. Infrastructure is
+shared; business context, vocabulary and state belong to the calling application.
 
-## Scope
+## Working today — 0.1.0
 
-`meuharness` is runtime infrastructure for software that needs agents, workflows, tools, policies, state, verification and model access.
+- `await Harness.run(HarnessRequest(...))` returns a structured result.
+- Runtime-independent contracts and a replaceable `RuntimeAdapter` protocol.
+- A MAF adapter calls the OpenAI-compatible 9Router gateway.
+- Explicit model, context, deadline and output budget for each execution.
+- Normalized errors, correlation IDs and lifecycle logs without prompt/context/key logging.
+- A progressive smoke test isolates configuration, catalog, direct completion and MAF.
 
-It is **not** a coding agent or IDE layer. Software development remains outside the harness and is done directly through the user's IDE / ChatGPT workflow.
+This is the first functional execution slice. Domain/capability routing, persistent
+state, tools, approvals and recovery workflows are **not implemented yet**.
 
-## Architecture
+## Install
 
-```text
-Software / domain features
-        |
-        v
-+---------------------------+
-|      meuharness core      |
-| global router             |
-| capabilities / policies   |
-| contracts / verification  |
-+-------------+-------------+
-              |
-              v
-+---------------------------+
-|        MAF adapter        |
-| agents / workflows        |
-| tools / HITL / runtime    |
-+-------------+-------------+
-              |
-              v
-+---------------------------+
-|   local gateway boundary  |
-|          9Router          |
-|  OpenAI-compatible API    |
-+-------------+-------------+
-              |
-      +-------+--------------------+
-      |            |               |
-      v            v               v
- OAuth providers  API-key providers  OpenRouter ...
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+cp .env.example .env
 ```
 
-## Responsibility split
+Set `NINEROUTER_API_KEY` to the **gateway key** from the local 9Router dashboard.
+Provider OAuth credentials stay in 9Router. Then discover models and choose one:
 
-- **Global Router (ours)** — decides domain, capability and execution path.
-- **MAF** — agent/workflow runtime, tool loops, checkpoints, middleware, HITL and orchestration primitives.
-- **9Router** — local model/provider gateway: provider credentials, OAuth/API-key connections, model/provider routing and fallback behind one OpenAI-compatible endpoint.
-- **Domains/apps** — own business context and software-specific features.
-- **IDE / ChatGPT development workflow** — stays outside `meuharness`.
+```bash
+meuharness-smoke --list-models
+meuharness-smoke --model '<exact ID returned by the catalog>' --timeout 30
+```
 
-## Repository blocks
+After a successful test, set `NINEROUTER_MODEL` in `.env`. The CLI defaults to
+`./.env`; from another directory use `--env-file /absolute/path/to/.env`.
+Process environment overrides the file. `--model` overrides the selection for that
+invocation without changing the file. No model/provider fallback is selected by the harness.
 
-- `upstream/agent-framework/` — pinned Microsoft Agent Framework upstream source (git submodule).
-- `src/meuharness/core/` — our framework-independent core contracts.
-- `src/meuharness/adapters/maf/` — the only layer allowed to depend directly on MAF.
-- `src/meuharness/providers/nine_router/` — integration boundary for the local 9Router gateway.
-- `src/meuharness/domains/` — domain-specific harnesses such as ACTIS and future operational domains.
-- `docs/` — architecture decisions and block-by-block implementation plan.
-- `tests/` — contract, adapter and integration tests.
+The runtime uses published packages: `agent-framework-core==1.18.0`,
+`agent-framework-openai==1.14.3` and `openai==3.13.0`. The broad
+`agent-framework` metapackage is unnecessary. The upstream submodule is only a
+reference; a fresh install does not require initializing it.
 
-## Dependency rule
+## Application integration
 
-`software/domain -> meuharness core -> runtime adapter -> MAF -> gateway adapter -> 9Router -> model provider`
+```python
+import asyncio
 
-The core must never import domain code. Domains must not import MAF directly. 9Router is a model/provider gateway, not the global/domain router.
+from meuharness import HarnessRequest
+from meuharness.bootstrap import create_harness
 
-## Current status
 
-**Block 0 — Foundation**: repository structure + pinned MAF upstream + 9Router selected as the default local model/provider gateway.
+async def main():
+    harness = create_harness()
+    result = await harness.run(HarnessRequest(
+        prompt="Summarize the supplied record in one sentence.",
+        context={"record": {"status": "pending", "missing_fields": ["delivery_date"]}},
+        instructions="Use only the supplied context. Do not invent missing values.",
+        timeout_s=30,
+        max_output_tokens=120,
+    ))
+    print(result.text)
+    print(result.request_id, result.elapsed_ms, result.usage)
+
+
+asyncio.run(main())
+```
+
+`create_harness` is the composition point. Code that already owns a runtime can
+construct `Harness(runtime)` directly. Importing the public API does not import MAF.
+Catch `HarnessError` and inspect `code`, `retryable` and `status_code` for failures.
+`retryable` is a classification, not an instruction to repeat actions automatically.
+
+## Verify
+
+```bash
+python -m pytest -q
+ruff check src tests
+meuharness-smoke --timeout 30
+```
+
+Tests use a local HTTP fixture and the actual MAF/SDK. They require no provider
+account. The smoke test makes two real model calls and requires your gateway.
+Each stage has a deadline; success requires the direct and MAF replies to match a
+new random probe. Exit codes: `0` success, `1` diagnostic failure, `130` interruption.
+
+See [architecture](docs/ARCHITECTURE.md), [diagnostic record](docs/DIAGNOSTIC-2026-09-14.md),
+[execution contract](docs/EXECUTION.md) and [next blocks](docs/BLOCKS.md).

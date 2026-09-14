@@ -1,25 +1,13 @@
-# 9Router provider gateway
+# 9Router gateway boundary
 
-This directory owns the `meuharness` integration boundary with the local 9Router service.
+`NineRouterSettings` reads and validates the gateway endpoint, gateway API key,
+model route and timeout. The key is excluded from settings repr. An empty model
+is allowed for catalog discovery, but completion requires explicit selection.
 
-9Router is treated as an external local gateway, not as a library embedded in the harness.
+`NineRouterGateway` creates SDK clients for MAF and provides `list_models()` and
+`complete()` for direct diagnosis. The direct path is diagnostic; application
+execution goes through `Harness` and the runtime adapter.
 
-Default API boundary:
-
-```text
-http://127.0.0.1:20128/v1
-```
-
-Planned responsibilities:
-
-- read `NINEROUTER_BASE_URL`, `NINEROUTER_API_KEY` and optional `NINEROUTER_MODEL` from configuration;
-- talk to 9Router through its OpenAI-compatible API;
-- translate generic `ModelRequest` contracts to gateway requests;
-- normalize responses and errors;
-- expose model/provider metadata needed by the harness without leaking 9Router-specific types into core.
-
-Provider OAuth sessions and upstream API keys are configured in 9Router, not in `meuharness` core.
-
-OpenRouter may be configured behind 9Router as an optional upstream provider. The harness does not depend on OpenRouter directly.
-
-This gateway does not perform domain or capability routing.
+Provider OAuth credentials, access tokens and provider-specific configuration
+stay inside 9Router. No 9Router configuration database is read or modified here.
+The gateway default remains `http://127.0.0.1:20128/v1`.

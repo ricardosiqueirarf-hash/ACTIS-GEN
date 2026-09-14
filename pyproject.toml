@@ -4,15 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "meuharness"
-version = "0.0.1"
+version = "0.1.0"
 description = "General-purpose agent harness with pluggable runtime adapters"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Ricardo"}]
 dependencies = [
-  "agent-framework>=1,<2",
-  "agent-framework-openai>=1,<2",
+  "agent-framework-core==1.18.0",
+  "agent-framework-openai==1.14.3",
+  "openai==3.13.0",
   "python-dotenv>=1,<2",
 ]
 
@@ -20,18 +21,14 @@ dependencies = [
 meuharness-smoke = "meuharness.smoke:main"
 
 [project.optional-dependencies]
-dev = [
-  "pytest>=8.0",
-  "pytest-asyncio>=0.23",
-  "ruff>=0.6",
-  "mypy>=1.11"
-]
+dev = ["pytest>=8,<9", "ruff>=0.6,<1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/meuharness"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"

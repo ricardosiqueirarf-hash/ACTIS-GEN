@@ -1,11 +1,11 @@
-# Domain harnesses
+# Domains
 
-Each domain is isolated behind the general harness contracts.
+Domains own business vocabulary, task context, policies and state. They call the
+public `meuharness` API and never import MAF directly.
 
-Planned examples:
+ACTIS is a separate software product and the likely first consumer. It captures
+WhatsApp information, organizes operational state and sends structured tasks to
+the harness. WhatsApp capture, ColorGlass rules and product UX do not belong in core.
 
-- `actis/` — business operations, customers, orders, payments, production, messaging.
-- `coding/` — repositories, files, tests, builds, Git workflows.
-- `research/` — web, documents, evidence, citations and synthesis.
-
-A domain may define its own agents, local router, tools, policies, verifiers and state schemas. It must not import Microsoft Agent Framework directly.
+No domain registry or concrete domain implementation exists in this slice.
+Coding-agent orchestration is outside the current project scope.

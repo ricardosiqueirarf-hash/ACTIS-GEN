@@ -1,9 +1,9 @@
-# MAF adapter
+# MAF runtime adapter
 
-This directory is the compatibility boundary between `meuharness` and Microsoft Agent Framework.
+`MAFRuntime` implements the runtime-independent `RuntimeAdapter` contract. It owns
+all MAF imports and translates task/context/options into a fresh MAF `Agent` run.
+Its adapter-local gateway protocol creates an OpenAI-compatible SDK client without
+putting SDK types in core. SDK error normalization is shared under `providers`.
 
-Only this adapter (and MAF-specific integration tests) may import MAF directly.
-
-The adapter will translate stable `meuharness` contracts into MAF agents, workflows, middleware, tools, checkpoints and human-in-the-loop primitives.
-
-Do not place ACTIS, coding or research logic here.
+No business logic, implicit session or tools are installed. See
+`docs/EXECUTION.md` and `docs/MAF-INTEGRATION.md` for current behavior and limitations.
