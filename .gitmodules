@@ -1,0 +1,3 @@
+[submodule "upstream/agent-framework"]
+	path = upstream/agent-framework
+	url = https://github.com/microsoft/agent-framework.git
