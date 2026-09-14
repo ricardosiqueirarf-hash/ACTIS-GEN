@@ -2,6 +2,12 @@
 
 General-purpose agent harness built as a thin, stable layer on top of the Microsoft Agent Framework (MAF), with OpenRouter as the default model gateway.
 
+## Scope
+
+`meuharness` is runtime infrastructure for software that needs agents, workflows, tools, policies, state, verification and model access.
+
+It is **not** a coding agent or IDE layer. Software development remains outside the harness and is done directly through the user's IDE / ChatGPT workflow.
+
 ## Architecture
 
 ```text
@@ -34,14 +40,13 @@ Software / domain features
    OpenAI  Anthropic Google ...
 ```
 
-External agent runtimes such as Codex CLI may also be attached through dedicated adapters. Codex can itself be configured to use OpenRouter as its model provider.
-
 ## Responsibility split
 
 - **Global Router (ours)** — decides domain, capability and execution path.
 - **MAF** — agent/workflow runtime, tool loops, checkpoints, middleware, HITL and orchestration primitives.
 - **OpenRouter** — default model gateway: model/provider selection, failover, unified API and model usage visibility.
 - **Domains/apps** — own business context and software-specific features.
+- **IDE / ChatGPT development workflow** — stays outside `meuharness`.
 
 ## Repository blocks
 
@@ -49,7 +54,7 @@ External agent runtimes such as Codex CLI may also be attached through dedicated
 - `src/meuharness/core/` — our framework-independent core contracts.
 - `src/meuharness/adapters/maf/` — the only layer allowed to depend directly on MAF.
 - `src/meuharness/providers/openrouter/` — OpenRouter model-gateway integration boundary.
-- `src/meuharness/domains/` — domain-specific harnesses such as ACTIS, coding and research.
+- `src/meuharness/domains/` — domain-specific harnesses such as ACTIS and future operational domains.
 - `docs/` — architecture decisions and block-by-block implementation plan.
 - `tests/` — contract, adapter and integration tests.
 
