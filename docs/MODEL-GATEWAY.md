@@ -42,7 +42,7 @@ OpenAI Anthropic Google ...
 - domain selection;
 - capability selection;
 - execution-path selection;
-- runtime/agent/tool selection;
+- runtime/tool selection;
 - policy-aware routing.
 
 ### MAF
@@ -58,11 +58,11 @@ OpenAI Anthropic Google ...
 
 The harness uses `OPENROUTER_API_KEY` as the default model-gateway credential.
 
-Provider BYOK credentials may be configured in OpenRouter where supported. Provider subscription OAuth sessions (for example a separate ChatGPT or Claude consumer subscription login) must not be assumed to be available through OpenRouter unless the provider/OpenRouter explicitly supports that credential flow.
+Provider BYOK credentials may be configured in OpenRouter where supported. Provider subscription OAuth sessions must not be assumed to be available through OpenRouter unless explicitly supported by the provider/OpenRouter credential flow.
 
-## External agent runtimes
+## Coding is outside this layer
 
-Codex CLI is an external agent runtime, not a model provider. It may be integrated through a dedicated adapter. Codex CLI can also be configured to use OpenRouter as its model provider, allowing its model traffic to share the same OpenRouter gateway.
+`meuharness` does not orchestrate Codex CLI or other coding agents in the current scope. Software development is performed externally through the user's IDE / ChatGPT workflow. OpenRouter exists here only as the model gateway for software agents and operational domains that run through `meuharness`.
 
 ## First target
 
