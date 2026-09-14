@@ -5,7 +5,7 @@
 ```text
 +--------------------------------------------------+
 | Software / domain features                       |
-| ACTIS / coding / research / future applications  |
+| ACTIS / research / future operational apps       |
 +-------------------------+------------------------+
                           |
                           v
@@ -31,7 +31,7 @@
                           v
 +--------------------------------------------------+
 | Model gateway boundary                           |
-| OpenRouter is the default gateway                 |
+| OpenRouter is the default gateway                |
 +-------------------------+------------------------+
                           |
              +------------+------------+
@@ -40,7 +40,7 @@
           OpenAI       Anthropic     Google ...
 ```
 
-External agent runtimes such as Codex CLI are separate from model providers. They attach through dedicated adapters. When useful, Codex CLI may itself point its model provider at OpenRouter.
+Software development through IDEs and ChatGPT is intentionally outside this architecture. `meuharness` exists for agent execution inside software products and operational domains, not for coding automation.
 
 ## Router responsibilities
 
@@ -50,7 +50,7 @@ There are two different routing layers and they must not be conflated:
    - chooses domain;
    - chooses capability;
    - chooses execution path/runtime;
-   - decides whether a task should use a model, workflow, tool or external agent runtime.
+   - decides whether a task should use a model, workflow or tool.
 
 2. **Model Router/Gateway — OpenRouter**
    - exposes a unified model API;
@@ -68,7 +68,8 @@ OpenRouter does not replace domain routing or software-specific behavior.
 4. Direct MAF imports are restricted to `src/meuharness/adapters/maf/` and MAF-specific integration tests.
 5. OpenRouter-specific code is restricted to `src/meuharness/providers/openrouter/` and provider integration tests.
 6. Upstream MAF source is read-only from our architecture's point of view. Changes to MAF must be made upstream or in our adapter, not as hidden local edits.
-7. Business nouns such as `customer`, `order`, `payment`, `inventory`, `commit` or `branch` do not belong in the general core.
+7. Business/domain nouns do not belong in the general core.
+8. Coding-agent responsibilities do not belong in the general core or in a dedicated coding domain unless scope changes explicitly in the future.
 
 ## Why MAF is a submodule
 
@@ -97,3 +98,7 @@ Stable runtime-independent contracts, global routing, capability discovery, glob
 ### domains/apps own
 
 Business/domain state, vocabulary, domain tools, domain routing details, domain policies, domain verifiers, domain-specific prompts/agents and software features that collect or organize domain context.
+
+### external development workflow owns
+
+IDE usage, repository editing, ChatGPT-assisted coding and other software-development activities. These are consumers/builders of the software, not responsibilities of `meuharness`.
