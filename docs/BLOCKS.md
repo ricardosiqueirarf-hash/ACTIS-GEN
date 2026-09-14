@@ -46,7 +46,7 @@ OpenRouter routes models/providers only. It does not replace the harness Global 
 
 ## Block 3 — Capability and Domain registries
 
-Domains declare capabilities. The general harness discovers capabilities without hardcoding ACTIS, coding or research concepts.
+Domains declare capabilities. The general harness discovers capabilities without hardcoding ACTIS, research or any future operational domain.
 
 ## Block 4 — Global Router
 
@@ -75,3 +75,7 @@ Domain-neutral event envelope, event bus adapter and complete execution audit tr
 ## Block 10 — First real domain
 
 ACTIS becomes the first domain implementation without leaking business concepts into the general core.
+
+## Explicitly out of scope
+
+Coding-agent orchestration, Codex CLI integration and IDE automation are not part of the current `meuharness` roadmap. Development is performed externally through the user's IDE / ChatGPT workflow.
