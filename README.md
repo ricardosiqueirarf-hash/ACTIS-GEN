@@ -1,6 +1,6 @@
 # meuharness
 
-General-purpose agent harness built as a thin, stable layer on top of the Microsoft Agent Framework (MAF), with OpenRouter as the default model gateway.
+General-purpose agent harness built as a thin, stable layer on top of the Microsoft Agent Framework (MAF), with 9Router as the default local model/provider gateway.
 
 ## Scope
 
@@ -30,21 +30,22 @@ Software / domain features
               |
               v
 +---------------------------+
-|     model gateway         |
-|       OpenRouter          |
+|   local gateway boundary  |
+|          9Router          |
+|  OpenAI-compatible API    |
 +-------------+-------------+
               |
-      +-------+-------+
-      |       |       |
-      v       v       v
-   OpenAI  Anthropic Google ...
+      +-------+--------------------+
+      |            |               |
+      v            v               v
+ OAuth providers  API-key providers  OpenRouter ...
 ```
 
 ## Responsibility split
 
 - **Global Router (ours)** — decides domain, capability and execution path.
 - **MAF** — agent/workflow runtime, tool loops, checkpoints, middleware, HITL and orchestration primitives.
-- **OpenRouter** — default model gateway: model/provider selection, failover, unified API and model usage visibility.
+- **9Router** — local model/provider gateway: provider credentials, OAuth/API-key connections, model/provider routing and fallback behind one OpenAI-compatible endpoint.
 - **Domains/apps** — own business context and software-specific features.
 - **IDE / ChatGPT development workflow** — stays outside `meuharness`.
 
@@ -53,17 +54,17 @@ Software / domain features
 - `upstream/agent-framework/` — pinned Microsoft Agent Framework upstream source (git submodule).
 - `src/meuharness/core/` — our framework-independent core contracts.
 - `src/meuharness/adapters/maf/` — the only layer allowed to depend directly on MAF.
-- `src/meuharness/providers/openrouter/` — OpenRouter model-gateway integration boundary.
+- `src/meuharness/providers/nine_router/` — integration boundary for the local 9Router gateway.
 - `src/meuharness/domains/` — domain-specific harnesses such as ACTIS and future operational domains.
 - `docs/` — architecture decisions and block-by-block implementation plan.
 - `tests/` — contract, adapter and integration tests.
 
 ## Dependency rule
 
-`software/domain -> meuharness core -> runtime adapter -> MAF -> model gateway -> OpenRouter`
+`software/domain -> meuharness core -> runtime adapter -> MAF -> gateway adapter -> 9Router -> model provider`
 
-The core must never import domain code. Domains must not import MAF directly. OpenRouter is a model gateway, not the global/domain router.
+The core must never import domain code. Domains must not import MAF directly. 9Router is a model/provider gateway, not the global/domain router.
 
 ## Current status
 
-**Block 0 — Foundation**: repository structure + pinned MAF upstream + OpenRouter selected as default model gateway.
+**Block 0 — Foundation**: repository structure + pinned MAF upstream + 9Router selected as the default local model/provider gateway.
