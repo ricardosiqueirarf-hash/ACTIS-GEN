@@ -4,11 +4,11 @@ We will evolve the harness in isolated blocks. A block only starts after the pre
 
 ## Block 0 — Foundation
 
-Goal: establish repository boundaries, pin Microsoft Agent Framework (MAF) as upstream infrastructure and select OpenRouter as the default model gateway.
+Goal: establish repository boundaries, pin Microsoft Agent Framework (MAF) as upstream infrastructure and select 9Router as the default local model/provider gateway.
 
 Deliverables:
 - MAF pinned under `upstream/agent-framework` as a git submodule.
-- OpenRouter selected as default model gateway.
+- 9Router selected as default local model/provider gateway.
 - Clear dependency direction.
 - Minimal Python package skeleton.
 - Architecture documentation.
@@ -30,19 +30,20 @@ Define framework-independent interfaces used by all later blocks:
 - model gateway protocol
 - model request/result contracts
 
-Rule: public core contracts must not import MAF or OpenRouter-specific classes.
+Rule: public core contracts must not import MAF or 9Router-specific classes.
 
-## Block 2 — Model Gateway
+## Block 2 — Local Model Gateway
 
-Build the first vertical integration through OpenRouter:
-- `ModelGateway` implementation for OpenRouter;
-- `OPENROUTER_API_KEY` configuration;
+Build the first vertical integration through 9Router:
+- `ModelGateway` implementation that talks to the local OpenAI-compatible 9Router API;
+- configurable `NINEROUTER_BASE_URL`;
+- `NINEROUTER_API_KEY` generated/copied from the local 9Router dashboard;
 - explicit model selection;
-- optional OpenRouter router/auto selection;
+- model/provider selection and fallback delegated to 9Router when configured there;
 - normalized model results/errors;
-- first end-to-end test through MAF -> OpenRouter -> model.
+- first end-to-end test through MAF -> 9Router -> connected model/provider.
 
-OpenRouter routes models/providers only. It does not replace the harness Global Router.
+9Router routes models/providers only. It does not replace the harness Global Router.
 
 ## Block 3 — Capability and Domain registries
 
@@ -50,7 +51,7 @@ Domains declare capabilities. The general harness discovers capabilities without
 
 ## Block 4 — Global Router
 
-Route request -> domain -> capability -> execution path. Domain-local routers remain inside each domain. Model selection may then be delegated to the OpenRouter model gateway.
+Route request -> domain -> capability -> execution path. Domain-local routers remain inside each domain. Model/provider selection may then be delegated to the 9Router gateway.
 
 ## Block 5 — State and Context
 
