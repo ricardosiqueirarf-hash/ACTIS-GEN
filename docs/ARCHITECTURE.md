@@ -30,14 +30,14 @@
                           |
                           v
 +--------------------------------------------------+
-| Model gateway boundary                           |
-| OpenRouter is the default gateway                |
+| Local model/provider gateway                     |
+| 9Router — OpenAI-compatible API                  |
 +-------------------------+------------------------+
                           |
-             +------------+------------+
-             |            |            |
-             v            v            v
-          OpenAI       Anthropic     Google ...
+             +------------+-------------+----------------+
+             |                          |                |
+             v                          v                v
+       OAuth providers            API-key providers   OpenRouter ...
 ```
 
 Software development through IDEs and ChatGPT is intentionally outside this architecture. `meuharness` exists for agent execution inside software products and operational domains, not for coding automation.
@@ -52,13 +52,13 @@ There are two different routing layers and they must not be conflated:
    - chooses execution path/runtime;
    - decides whether a task should use a model, workflow or tool.
 
-2. **Model Router/Gateway — OpenRouter**
-   - exposes a unified model API;
-   - selects/serves models and upstream providers;
-   - handles provider routing/failover according to OpenRouter configuration;
-   - centralizes model usage visibility and provider credentials supported by OpenRouter.
+2. **Model/provider gateway — 9Router**
+   - exposes one local OpenAI-compatible endpoint to the harness;
+   - owns provider connections and credentials configured in 9Router;
+   - may route/fallback across connected models/providers;
+   - hides provider-specific authentication details from `meuharness`.
 
-OpenRouter does not replace domain routing or software-specific behavior.
+9Router does not replace domain routing or software-specific behavior.
 
 ## Non-negotiable dependency rules
 
@@ -66,10 +66,11 @@ OpenRouter does not replace domain routing or software-specific behavior.
 2. `core` never imports Microsoft Agent Framework directly.
 3. Domains depend only on public `meuharness` contracts and domain-owned code.
 4. Direct MAF imports are restricted to `src/meuharness/adapters/maf/` and MAF-specific integration tests.
-5. OpenRouter-specific code is restricted to `src/meuharness/providers/openrouter/` and provider integration tests.
-6. Upstream MAF source is read-only from our architecture's point of view. Changes to MAF must be made upstream or in our adapter, not as hidden local edits.
-7. Business/domain nouns do not belong in the general core.
-8. Coding-agent responsibilities do not belong in the general core or in a dedicated coding domain unless scope changes explicitly in the future.
+5. 9Router-specific gateway code is restricted to `src/meuharness/providers/nine_router/` and gateway integration tests.
+6. Provider OAuth sessions and API keys are not stored in the general core; they are managed by 9Router or the provider-specific system behind it.
+7. Upstream MAF source is read-only from our architecture's point of view. Changes to MAF must be made upstream or in our adapter, not as hidden local edits.
+8. Business/domain nouns do not belong in the general core.
+9. Coding-agent responsibilities do not belong in the general core or in a dedicated coding domain unless scope changes explicitly in the future.
 
 ## Why MAF is a submodule
 
@@ -87,9 +88,11 @@ The Microsoft repository is intentionally not copied into our source tree. Pinni
 
 Agent/runtime primitives, workflows, checkpoints, middleware execution, tool calling primitives, human-in-the-loop primitives and runtime lifecycle.
 
-### OpenRouter owns
+### 9Router owns
 
-Default model gateway responsibilities: unified model endpoint, model/provider routing, failover and model-usage visibility.
+Local model/provider gateway responsibilities: one OpenAI-compatible endpoint, provider authentication/connectivity, model/provider routing and fallback according to its configuration.
+
+OpenRouter may exist behind 9Router as one optional provider, but `meuharness` does not depend on OpenRouter directly.
 
 ### meuharness core owns
 
