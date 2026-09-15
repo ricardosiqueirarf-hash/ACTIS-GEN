@@ -3,9 +3,9 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "meuharness"
+name = "actis-gen"
 version = "0.1.0"
-description = "General-purpose agent harness with pluggable runtime adapters"
+description = "ACTIS GEN - general-purpose agent harness with pluggable runtime adapters"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -18,6 +18,12 @@ dependencies = [
 ]
 
 [project.scripts]
+actis-gen = "meuharness.cli:main"
+actis-gen-web = "meuharness.web:main"
+actis-gen-smoke = "meuharness.smoke:main"
+actis-gen-scheduler = "meuharness.automation_scheduler:main"
+meuharness = "meuharness.cli:main"
+meuharness-web = "meuharness.web:main"
 meuharness-smoke = "meuharness.smoke:main"
 
 [project.optional-dependencies]

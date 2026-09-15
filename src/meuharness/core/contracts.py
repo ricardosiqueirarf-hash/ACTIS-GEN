@@ -13,6 +13,7 @@ from uuid import uuid4
 class HarnessRequest:
     prompt: str
     context: dict[str, Any] = field(default_factory=dict)
+    attachments: list[dict[str, Any]] = field(default_factory=list)
     instructions: str = ""
     request_id: str = field(default_factory=lambda: str(uuid4()))
     timeout_s: float = 30.0
@@ -41,6 +42,13 @@ class HarnessRequest:
         except (TypeError, ValueError, RecursionError):
             raise ValueError("context must contain only finite JSON values") from None
         object.__setattr__(self, "context", snapshot)
+        if not isinstance(self.attachments, list):
+            raise TypeError("attachments must be a JSON array")
+        try:
+            attachments = json.loads(json.dumps(self.attachments, allow_nan=False, ensure_ascii=False))
+        except (TypeError, ValueError, RecursionError):
+            raise ValueError("attachments must contain only finite JSON values") from None
+        object.__setattr__(self, "attachments", attachments)
 
 
 @dataclass(frozen=True)

@@ -1,36 +1,77 @@
-# Implementation blocks
+# ACTIS GEN — Blocos de implementação
 
-## Completed: foundation and first execution slice
+## Concluído no working tree atual
 
-- Reference upstream submodule and documented responsibility boundaries.
-- Published MAF core/OpenAI packages, independent of the submodule checkout.
-- Minimal request/result/error/usage contracts and runtime adapter protocol.
-- `Harness.run` with deadline, cancellation and lifecycle logging.
-- MAF adapter and 9Router client/configuration boundary.
-- Catalog discovery, direct completion and MAF smoke stages.
-- Deterministic contract and real-adapter HTTP-fixture tests.
+### Fundação de execução
 
-This combines the useful portions of the previous Contracts and Local Model
-Gateway blocks. Unused interface placeholders were deliberately deferred.
+- contratos neutros do Harness;
+- MAF adapter;
+- gateway 9Router;
+- deadlines, erros normalizados e smoke test.
 
-## Next: capability registry and explicit routing
+### Control plane
 
-Add a small registry where an external domain registers a named capability and its
-handler. Route by an explicit domain/capability identifier first. Required tests:
-duplicate registration, unknown capability, isolation between domains and stable
-error results. Only introduce model-based routing after a real use case needs it.
+- registro persistente de agentes;
+- UI/API local;
+- conversas persistentes;
+- Runs e cancelamento;
+- World e chat global;
+- empresas/setores com drag and drop.
 
-Do not create ACTIS business rules inside core or make WhatsApp an input transport
-of the harness. ACTIS owns capture and business state and calls the public contract.
+### Capabilities
 
-## Subsequent blocks, driven by real consumers
+- catálogo de Tools;
+- Browser Harness;
+- Filesystem MCP;
+- Terminal MCP;
+- Computer Use MCP;
+- ACTIS Admin.
 
-1. State/context references and explicit session boundaries.
-2. Validated tool execution, side-effect classification and idempotency.
-3. Policy decisions and human approvals for critical actions.
-4. Verification/recovery with bounded retry rules and observable outcomes.
-5. Durable events/audit storage when lifecycle logging is insufficient.
-6. First ACTIS integration using a real structured task.
+### Contexto e memória
 
-Each block needs a concrete consumer, small contracts and tests. Coding-agent
-orchestration, Codex CLI and IDE automation remain outside this roadmap.
+- contexto hierárquico empresa/setor/projeto/agente;
+- projects + bindings;
+- prioridade e pinned context;
+- memória cross-conversation com FTS5.
+
+### Segurança operacional
+
+- scopes granulares;
+- permissions permanentes por agente;
+- approvals persistentes aprovar/negar/revogar;
+- filtragem real das operações MCP por scope.
+
+### Autonomia
+
+- automações interval/daily/once/condition;
+- scheduler independente em processo separado;
+- Event Bus persistente;
+- heartbeats para Computer Use.
+
+### Workflows
+
+- editor visual;
+- Start / Agent / Condition / End;
+- validação estrutural;
+- execução via API/UI;
+- branches true/false;
+- trace e histórico em `workflow_runs`;
+- limite anti-loop de 50 etapas.
+
+### Persistência
+
+- SQLite canônico em WAL;
+- migração automática de JSON legado;
+- collections + events + memories + approvals + workflows + workflow_runs.
+
+## Próximos blocos recomendados
+
+1. **Consolidar qualidade do working tree**: zerar os 4 findings atuais de Ruff e commitá-lo em checkpoints claros.
+2. **Workflow v2**: paralelismo, fan-in/fan-out, retries explícitos, approvals no meio do grafo e nós de tool/evento.
+3. **Autenticação/RBAC** se o produto deixar de ser exclusivamente local single-user.
+4. **Memória v2** somente se FTS5 demonstrar limite real: embeddings, deduplicação e compactação.
+5. **Observabilidade v2**: filtros, correlação Run ↔ workflow ↔ automation ↔ tool calls e métricas agregadas.
+6. **Storage/schema v2**: migrar entidades críticas de `collections(payload JSON)` para tabelas tipadas quando consultas/concorrência exigirem.
+7. **Packaging/deploy**: instalação reproduzível do web + scheduler + Browser/Computer dependencies.
+
+Não criar novas abstrações só por antecipação. Cada bloco deve responder a um uso real do ACTIS GEN ou de um domínio consumidor.

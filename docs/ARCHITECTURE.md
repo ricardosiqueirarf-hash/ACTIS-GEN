@@ -1,55 +1,109 @@
-# Architecture
+# ACTIS GEN — Arquitetura
 
-Generalize infrastructure; specialize knowledge, state, tools and business rules.
+## Princípio
 
-## Current execution path
+**Generalizar infraestrutura; especializar conhecimento, estado, contexto, permissões e regras do domínio.**
 
-The application creates a `HarnessRequest` and calls `Harness.run`. The core applies
-a deadline and records lifecycle events. `RuntimeAdapter` is the replaceable
-boundary; today its implementation is `MAFRuntime`. MAF uses a fresh
-OpenAI-compatible client created by the configured gateway. 9Router owns provider
-authentication, model routing and its own fallback policy.
+O ACTIS GEN não deve criar um harness do zero para cada software. Ele cria/configura agentes sobre uma infraestrutura comum e conecta capabilities maduras quando necessário.
 
-| Layer | Current responsibility |
+## Caminho canônico
+
+```text
+Entrada
+├─ conversa persistente
+├─ chat direto / World
+├─ delegação do General
+├─ automação
+└─ workflow
+        ↓
+ExecutionService.execute_agent()
+        ↓
+1. carrega definição do agente
+2. seleciona modelo / settings do 9Router
+3. resolve tools e scopes efetivos
+4. resolve contexto organizacional
+5. recupera memória persistente
+6. cria Run e publica run.started
+7. monta HarnessRequest
+8. Harness Core → MAF → 9Router
+9. MCP tools quando autorizadas
+10. finaliza Run / memória / Event Bus
+```
+
+## Camadas
+
+| Camada | Responsabilidade atual |
 |---|---|
-| Calling software/domain | Task, context, instructions, operational state and UX |
-| `core` | Request/result/error contracts, deadline, correlation and lifecycle |
-| `adapters/maf` | MAF agent creation, message/options translation, runtime lifecycle |
-| `providers/nine_router` | Gateway settings, SDK factory, catalog/direct diagnostic requests |
-| `providers/openai_errors.py` | Shared SDK exception classification without raw bodies |
-| `bootstrap.py` | Explicit composition of the core, chosen runtime and gateway |
-| External 9Router | Provider OAuth/API credentials, upstream routing and fallback |
+| `web_assets/index.html` | SPA local: Agentes, World, Automações, Workflows, Approvals, Eventos, Runs, Modelos, Tools, Empresas e Sobre |
+| `web.py` | API HTTP local, integração da UI e operações administrativas |
+| `execution_service.py` | kernel único de execução |
+| `core/` | contratos neutros, Harness, deadline e erros |
+| `adapters/maf/` | adaptação para Microsoft Agent Framework e MCPs |
+| `providers/nine_router/` | settings, client OpenAI-compatible, catálogo e probe direto |
+| `storage.py` | SQLite canônico e migração de JSON legado |
+| `agents.py` | agentes, organizações, conversas e Runs |
+| `contexts.py` | contexto empresa/setor/projeto/agente |
+| `memory.py` | memória cross-conversation com FTS5 |
+| `approvals.py` | approvals persistentes e scopes |
+| `automations.py` | definição/estado das automações |
+| `automation_scheduler.py` | scheduler independente |
+| `workflows.py` | editor/persistência/validação/executor de workflows |
+| `event_bus.py` | eventos operacionais persistentes |
+| 9Router externo | autenticação de providers, catálogo e roteamento/fallback do modelo |
 
-Only `Harness.run` is implemented in the public execution API. The global router,
-registry, persistent state, tool policies, approvals and verification workflows
-remain future blocks. The smoke CLI adds a narrow connectivity verifier.
+## Fronteiras importantes
 
-## Dependency rules
+1. `core` não depende do domínio, UI, MAF ou 9Router.
+2. MAF fica atrás de `adapters/maf`.
+3. 9Router resolve provider/modelo; ACTIS GEN resolve agente/capability/contexto/permissão.
+4. Browser/Files/Terminal/Computer são capabilities; não devem carregar regra de negócio.
+5. Conversation, Run, Automation e Workflow Run são entidades diferentes.
+6. Empresa/setor/projeto são espaços de contexto e organização; não são threads de conversa.
+7. Memória conversacional e contexto organizacional são sistemas separados.
+8. Approvals concedem scopes; não devem ser confundidos com a simples existência de uma tool no catálogo.
 
-1. Core never imports domains, MAF, provider SDKs or concrete gateways.
-2. Domains use public contracts; they never import MAF directly.
-3. All production MAF imports remain inside `adapters/maf`.
-4. 9Router-specific settings and HTTP access belong in `providers/nine_router`.
-5. SDK-specific client factory types stay outside core; avoid an abstraction whose
-   public return type exposes a vendor SDK.
-6. Provider OAuth sessions and upstream keys remain inside 9Router. The application
-   receives only the gateway key and does not inspect its provider database.
-7. The upstream submodule is a reference. Application runtime dependencies are
-   reviewed published packages, not editable submodule installations.
-8. Business/domain vocabulary does not belong in general infrastructure.
+## Contexto
 
-## Two routing responsibilities
+```text
+empresa
+  ↓
+setor
+  ↓
+projeto (binding explícito ao agente)
+  ↓
+agente
+```
 
-The future **global router** chooses domain, capability and execution path.
-The existing **9Router gateway** chooses model/provider routes according to its
-configuration. These are different responsibilities.
+Itens `pinned` entram sempre. Os demais são selecionados por sobreposição lexical + prioridade. O pacote de contexto organizacional é entregue separadamente do histórico da conversa.
 
-## ACTIS boundary
+## Memória
 
-ACTIS is a separate software product. It captures WhatsApp messages, manages its
-local database and operational state, assembles context, then asks the harness to
-perform a structured task. The harness does not capture WhatsApp or own ACTIS
-customers, orders, payments or Kanban rules.
+Quando `memory=true`, uma execução concluída grava um resumo textual de usuário + assistente. `memory.py` usa SQLite FTS5 e fallback por recência. O runtime injeta até 6 memórias relevantes. Não há embeddings/vetores nesta versão.
 
-The IDE/ChatGPT workflow is used to develop this infrastructure. Building a coding
-agent, Codex CLI wrapper or IDE orchestrator is outside the current scope.
+## Permissões
+
+Scopes atuais:
+
+```text
+browser.read
+browser.interact
+files.read
+files.write
+terminal.exec
+computer.view
+computer.control
+actis.admin
+```
+
+Um agente pode ter tools declaradas e uma lista permanente de `permissions`. Approvals aprovados adicionam scopes dinamicamente. Browser, Files e Computer filtram as operações MCP reais por scope.
+
+## Concorrência
+
+- Runs independentes podem existir em paralelo.
+- O chat global impede duas requisições simultâneas para **o mesmo agente**.
+- Agentes diferentes podem responder simultaneamente.
+- Harness Computer é serializado: uma segunda execução com Computer é recusada enquanto outra está ativa.
+
+## Estado do repositório
+
+Auditoria de 2026-09-15: branch `feat/runtime-foundation`, com várias mudanças do ACTIS GEN ainda não commitadas. Portanto esta documentação descreve o **working tree**, não apenas o último commit.

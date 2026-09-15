@@ -1,78 +1,98 @@
-# Execution slice — 0.1.0
+# ACTIS GEN — Execução e lifecycle
 
-## Decision
+## Unidade básica: Run
 
-Build one useful vertical slice before declaring speculative Domain, Tool, Policy,
-State or Approval interfaces. The public surface currently consists of `Harness`,
-`HarnessRequest`, `HarnessResult`, `HarnessError`, `RuntimeAdapter` and `TokenUsage`.
+Uma Run representa uma execução de um agente. Conversation é histórico de diálogo; Run é execução; Automation agenda Runs; Workflow Run orquestra várias Runs.
 
-The runtime adapter protocol returns a neutral `RuntimeResult`. MAF and SDK types
-never appear in the core. The MAF-specific OpenAI-compatible client factory protocol
-stays inside its adapter: putting an SDK-returning ModelGateway protocol in core
-would make the apparent abstraction provider-dependent.
+Estados de Run observados:
 
-## Request and result
+```text
+running
+completed
+failed
+cancelled
+```
 
-| Field | Meaning |
-|---|---|
-| `prompt` | Non-empty task supplied by the calling software |
-| `context` | JSON object; copied at construction and serialized into the user input |
-| `instructions` | Optional instructions supplied by the trusted application |
-| `request_id` | Correlation ID; generated if omitted |
-| `timeout_s` | Finite, positive execution deadline, default 30 seconds |
-| `max_output_tokens` | Output budget, default 256, translated to MAF `max_tokens` |
+## Fluxo de `execute_agent()`
 
-Results contain `request_id`, `text`, `model`, `runtime`, `elapsed_ms` and `usage`.
-`model` is the requested gateway route, not proof of which upstream model a 9Router
-fallback used. Usage reflects SDK/framework reports; missing counts remain `None`.
-Invalid request data fails during construction, before contacting the runtime.
+1. valida `agent_id` e prompt;
+2. normaliza até 16 mensagens anteriores + mensagem atual;
+3. carrega o modelo configurado no agente;
+4. calcula tools efetivas;
+5. calcula scopes permanentes + approvals aprovados;
+6. impede concorrência de Computer Use;
+7. amplia deadline para no mínimo 300 s quando Computer está ativo;
+8. monta MCPs filtrados pelos scopes;
+9. resolve contexto organizacional;
+10. recupera memória FTS5 quando `memory=true`;
+11. cria Run;
+12. emite `run.started`;
+13. executa `HarnessRequest` via Harness → MAF → 9Router;
+14. trata cancelamento/falha;
+15. persiste resposta e memória;
+16. detecta pedidos `ACTIS_APPROVAL_REQUEST: <scope>` na resposta;
+17. emite `run.completed`.
 
-Every run creates a separate client and agent. No history, implicit session or
-business state is shared. Context belongs to the caller; do not mutate a request
-while it is running. A correlation ID is **not** an idempotency key: calling `run`
-again makes another request even when the ID is reused.
+## Heartbeat de Computer Use
 
-## Failures
+Runs com Harness Computer publicam `run.heartbeat` a cada 10 s enquanto ativas. O heartbeat é observabilidade; não é garantia de progresso da aplicação externa.
 
-| Code | Interpretation |
-|---|---|
-| `configuration` | Missing/invalid gateway configuration |
-| `model_not_listed` | Smoke-selected model absent from the catalog |
-| `authentication` | Gateway/provider returned 401 or 403 |
-| `not_found` | Gateway endpoint/model returned 404 |
-| `rate_limited` | Gateway/provider returned 429 |
-| `gateway_error` | Gateway returned a server error; inspect gateway logs |
-| `request_rejected` | Other HTTP request rejection |
-| `connection` | Cannot reach the configured endpoint |
-| `timeout` | HTTP or execution deadline exceeded |
-| `invalid_response` | Missing usable text or invalid catalog |
-| `runtime_error` | Unexpected runtime/adapter failure |
-| `verification` | Smoke reply did not match its random probe |
+## Cancelamento
 
-MAF may wrap SDK exceptions. The adapter walks their causes to preserve status and
-classification. Public errors never repeat raw upstream bodies or credentials.
-In particular, an HTTP 503 containing an upstream 403 remains a `gateway_error`
-with `status_code=503`; diagnosing the provider cause belongs in 9Router logs.
+`POST /api/runs/:id/cancel` tenta cancelar a task asyncio ativa. Se não houver task registrada, o backend pode marcar uma Run órfã como `cancelled`. Cancelamento local não prova rollback de side-effects externos já executados.
 
-No SDK automatic retry is enabled. 9Router retains its own configured fallback
-behavior. `asyncio.timeout` cancels a run; caller cancellation propagates unchanged.
-Cancellation stops waiting locally and does not imply that a provider rolled back
-or did not process the request. Future tools need their own execution/idempotency
-policies before retries can be enabled safely.
+## Tools efetivas
 
-## Observability
+Uma tool entra no runtime quando:
 
-Logger `meuharness` emits `harness.run.started` and exactly one terminal lifecycle
-event: `completed`, `failed` or `cancelled`. Log records include correlation ID,
-runtime and, when relevant, elapsed milliseconds/error code. The application owns
-logging handlers and JSON formatting. The core does not log prompt, context, key,
-raw exception bodies or model responses.
+- está declarada no agente; ou
+- algum scope aprovado corresponde a essa tool.
 
-The CLI emits JSON lines and prints only its synthetic connectivity replies. A
-successful catalog lookup is not evidence of provider entitlement or health.
+A lista de operações internas do MCP depende dos scopes efetivos. Exemplo: `harness_files` pode existir, mas apenas os métodos de leitura serão expostos se o agente tiver somente `files.read`.
 
-## Boundaries still to build
+## Approvals
 
-No tools, file access, shell execution, messaging, approvals, domain dispatch or
-persistent state are attached to these agents. ACTIS supplies a structured task
-when it needs intelligence and continues to own capture, operational data and UX.
+O modelo é instruído a pedir capacidade ausente com uma linha exata:
+
+```text
+ACTIS_APPROVAL_REQUEST: files.write
+```
+
+Depois da conclusão da Run, o kernel cria um approval persistente para scopes válidos encontrados. A autorização passa a valer em execuções posteriores após aprovação na UI/API.
+
+## Conversas
+
+Conversation persiste mensagens. Cada envio cria uma Run independente vinculada por `conversation_id`. O contexto da execução usa até 16 mensagens válidas anteriores.
+
+## Delegação
+
+`actis_run_agent` usa o mesmo `execute_agent()` do chat. Portanto o agente alvo recebe seu modelo, tools, permissions, contexto e memória normais; não existe um caminho “simplificado” separado para delegação.
+
+## Automação
+
+O scheduler executa diretamente `execute_agent(source="automation")`. Conditions são verificadas pelo General com `source="automation_condition"`, esperando `ACTIS_TRIGGER` ou `ACTIS_WAIT`.
+
+## Workflows
+
+O executor de workflow suporta:
+
+- `start` — ponto inicial único;
+- `agent` — executa um agente via `execute_agent()`;
+- `condition` — roteia branch `true`/`false` usando a saída anterior;
+- `end` — encerra e devolve a saída.
+
+Templates de prompt aceitam:
+
+```text
+{{input}}
+{{previous}}
+{{node.label}}
+```
+
+Condições atuais são simples e determinísticas: `contains:`, `not contains:`, `equals:` ou substring. Há limite de 50 etapas para detectar ciclos sem saída.
+
+Cada execução gera registro em `workflow_runs` com trace por nó. Em 2026-09-15 o engine e a UI estão implementados, mas o banco auditado tinha 0 workflow runs persistidas.
+
+## Erros do Harness Core
+
+O core ainda normaliza categorias como configuração, autenticação, rate limit, timeout, conexão, gateway e resposta inválida. 9Router continua dono do fallback upstream; o ACTIS GEN não repete automaticamente uma ação com side-effect.

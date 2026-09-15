@@ -1,35 +1,77 @@
-# Microsoft Agent Framework integration
+# ACTIS GEN — Microsoft Agent Framework e MCP
 
-All direct production MAF imports live in `src/meuharness/adapters/maf/`.
-Public core/domain contracts do not expose framework-specific classes.
+## Dependências
 
-## Actual runtime dependencies
-
-The first verified package set is:
+Pacotes declarados atualmente:
 
 - `agent-framework-core==1.18.0`
 - `agent-framework-openai==1.14.3`
 - `openai==3.13.0`
 
-These are published stable packages. Separate MAF packages have independent
-versions; matching the core and provider version numbers is not required.
-The broad `agent-framework` metapackage includes integrations this slice does not use.
-Upgrades must be deliberate and pass adapter tests plus the real gateway smoke test.
+O subdiretório `upstream/agent-framework` é referência de código e não deve ser tratado como a fonte do runtime instalado.
 
-MAF receives an explicit `AsyncOpenAI` client with gateway credentials/base URL,
-an HTTP timeout and `max_retries=0`. Each run owns and closes its client and agent.
-The harness additionally imposes an end-to-end async deadline. MAF's
-`OpenAIChatCompletionClient` converts messages/options and normalizes the response.
+## Composição
 
-Sources: [Microsoft provider integration](https://learn.microsoft.com/en-us/agent-framework/integrations/by-component/model-providers/openai),
-[published core package](https://pypi.org/project/agent-framework-core/1.18.0/),
-[published provider package](https://pypi.org/project/agent-framework-openai/1.14.3/).
-Constructor signatures and option names were also checked against installed code.
+`bootstrap.py` compõe:
 
-## Reference upstream
+```text
+Harness
+  ↓
+MAFRuntime
+  ↓
+NineRouterGateway
+```
 
-`upstream/agent-framework` remains pinned at
-`926b4ecacdaa95cb909c9d08f77b4fd898f273c0`.
-It is a source reference, not an editable runtime dependency. Do not install core
-or OpenAI packages with `pip install -e upstream/...` in the application environment.
-Updating the reference pin and upgrading runtime packages are separate operations.
+O `ExecutionService` fica acima dessa composição e injeta instruções, contexto, memória, tools e scopes específicos do ACTIS GEN.
+
+## MCPs atuais
+
+### Harness Browser
+
+Servidor `browser-harness-mcp`, conectado a um Chrome headless gerenciado pelo ACTIS para cada agente. Cada agente possui perfil persistente próprio em `~/.local/share/actis-gen/browser-profiles/<agent-id>/` e porta CDP local dinâmica.
+
+Scopes:
+
+- `browser.read`: page info, screenshot, tabs, wait, HTTP GET etc.;
+- `browser.interact`: inclui navegação, click, type, fill, scroll, JS/CDP, upload e recording.
+
+A UI do chat expõe um painel **Browser ao vivo** para agentes com Harness Browser. O painel usa o mesmo CDP do agente para mostrar screenshot, URL/título e permitir intervenção humana por clique, digitação, Enter, reload e navegação manual, sem usar o mouse/teclado do desktop humano.
+
+### Harness Files
+
+Servidor MCP Filesystem oficial, limitado ao diretório home do usuário.
+
+Scopes:
+
+- `files.read`: leitura, listagem, busca e metadata;
+- `files.write`: write/edit/create/move.
+
+### Harness Terminal
+
+MCP Shell Server em modo permissivo quando a capability é concedida. O scope é `terminal.exec`. O diretório permitido é o home do usuário.
+
+### Harness Computer
+
+Zavora Computer Use MCP no desktop Linux/Wayland real.
+
+- `computer.view`: leitura de estado, janelas, displays, clipboard e metadata;
+- `computer.control`: adiciona mouse, teclado, scroll, abertura/ativação de apps/janelas e demais ações.
+
+`computer_observe` usa screenshot do MCP + chamada multimodal pelo 9Router para devolver uma descrição textual e coordenadas físicas.
+
+## Lifecycle de MCP
+
+MAF recebe os MCPs permitidos para cada Run. A filtragem ocorre antes de o agente ver as operações. Isso é mais forte do que apenas pedir ao modelo para “não usar” uma função.
+
+## Timeouts
+
+- execução comum: settings do 9Router / request;
+- Computer Use: deadline mínimo de 300 s no kernel;
+- MCP Files: request timeout 30 s;
+- MCP Terminal: 60 s;
+- MCP Computer: 60 s por tool call;
+- observer multimodal: 60 s.
+
+## Regra de dependência
+
+Código de negócio não deve importar MAF diretamente. Integrações framework-specific permanecem em `adapters/maf/`.

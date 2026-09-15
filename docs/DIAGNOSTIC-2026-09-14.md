@@ -1,5 +1,7 @@
 # Local diagnostic — 2026-09-14
 
+> **Documento histórico.** Este arquivo registra o diagnóstico de 2026-09-14 e não descreve o estado atual completo do ACTIS GEN. Para o estado corrente, veja `ACTIS-GEN-ESTADO-ATUAL.md`.
+
 ## Verified environment
 
 - Device: `lowkanta-H310`, accessed with Remote Desktop Commander.

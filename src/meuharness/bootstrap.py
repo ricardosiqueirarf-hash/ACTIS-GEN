@@ -5,5 +5,9 @@ from meuharness.adapters.maf import MAFRuntime
 from meuharness.providers.nine_router import NineRouterGateway, NineRouterSettings
 
 
-def create_harness(settings: NineRouterSettings | None = None) -> Harness:
-    return Harness(MAFRuntime(NineRouterGateway(settings or NineRouterSettings.from_env())))
+def create_harness(
+    settings: NineRouterSettings | None = None, *, tools: object | None = None
+) -> Harness:
+    return Harness(
+        MAFRuntime(NineRouterGateway(settings or NineRouterSettings.from_env()), tools=tools)
+    )

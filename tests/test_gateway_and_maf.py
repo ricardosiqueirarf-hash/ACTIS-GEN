@@ -262,3 +262,52 @@ def test_smoke_rejects_mismatched_reply_without_reporting_success(endpoint, monk
     assert all(event["status"] != "ok" for event in direct)
     assert len(state["requests"]) == 1
     assert not any(event["stage"] == "maf_completion" for event in events)
+
+
+def test_maf_runtime_exposes_function_tools_without_provider_tokens(endpoint):
+    from agent_framework import tool
+
+    gateway, state = endpoint
+
+    @tool(name="actis_ping", description="Local test tool")
+    def actis_ping(value: str) -> str:
+        return value
+
+    async def run():
+        return await Harness(MAFRuntime(gateway, tools=[actis_ping])).run(HarnessRequest("hello"))
+
+    result = asyncio.run(run())
+    assert result.text == "fixture response"
+    body = state["requests"][0]["body"]
+    names = [item["function"]["name"] for item in body.get("tools", [])]
+    assert "actis_ping" in names
+
+
+def test_general_control_tools_are_exposed_through_maf_without_provider_tokens(endpoint):
+    from meuharness.control_tools import build_general_tools
+
+    gateway, state = endpoint
+
+    async def run():
+        tools = build_general_tools(None)
+        return await Harness(MAFRuntime(gateway, tools=tools)).run(HarnessRequest("hello"))
+
+    result = asyncio.run(run())
+    assert result.text == "fixture response"
+    body = state["requests"][0]["body"]
+    names = {item["function"]["name"] for item in body.get("tools", [])}
+    required = {
+        "actis_get_system_state",
+        "actis_list_agents", "actis_get_agent", "actis_create_agent", "actis_update_agent",
+        "actis_list_companies", "actis_create_company", "actis_update_company",
+        "actis_list_sectors", "actis_create_sector", "actis_update_sector",
+        "actis_list_projects", "actis_create_project",
+        "actis_list_context", "actis_create_context", "actis_delete_context",
+        "actis_set_agent_projects", "actis_list_models", "actis_list_runs",
+        "actis_list_tasks", "actis_list_events", "actis_list_approvals",
+        "actis_list_automations", "actis_create_automation", "actis_update_automation",
+        "actis_delete_automation", "actis_list_workflows", "actis_get_workflow",
+        "actis_save_workflow", "actis_delete_workflow", "actis_run_workflow",
+        "actis_list_conversations", "actis_create_conversation", "actis_run_agent",
+    }
+    assert required <= names
