@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -87,6 +88,32 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
+
+    def _cors_origin(self) -> str | None:
+        origin = str(self.headers.get("Origin") or "").strip()
+        allowed = {"http://localhost", "https://localhost", "capacitor://localhost"}
+        allowed.update(
+            item.strip()
+            for item in os.environ.get("ACTIS_CORS_ORIGINS", "").split(",")
+            if item.strip()
+        )
+        return origin if origin in allowed else None
+
+    def end_headers(self) -> None:
+        origin = self._cors_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+            self.send_header("Access-Control-Expose-Headers", "Content-Disposition")
+            self.send_header("Vary", "Origin")
+        super().end_headers()
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def send_json(self, status: int, payload: dict) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode()
