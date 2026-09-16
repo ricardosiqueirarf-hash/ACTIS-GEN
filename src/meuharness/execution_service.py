@@ -35,10 +35,12 @@ from meuharness.providers.nine_router import NineRouterSettings
 from meuharness.public_tools import build_public_tools
 from meuharness.tasks import create_task_for_run, update_task_by_run
 from meuharness.tool_registry import (
+    inheritable_tool_ids,
     list_tool_catalog,
     normalize_scopes,
     normalize_tool_ids,
     scopes_for_tools,
+    skill_instructions_for_tools,
 )
 
 VALID_SOURCES = {"user", "direct", "delegation", "automation", "automation_condition"}
@@ -46,6 +48,7 @@ AFFIRMATIVE = {"sim", "pode", "pode sim", "autorizo", "autorizado", "ok", "claro
 
 _ACTIVE_LOCK = threading.RLock()
 _ACTIVE_EXECUTIONS: dict[str, dict[str, Any]] = {}
+
 
 def _task_finished_at() -> str:
     return datetime.now(UTC).isoformat()
@@ -128,17 +131,32 @@ def _cited_agents(agent_refs: list[Any] | None) -> list[dict[str, Any]]:
     return result
 
 
-def _effective_tools(agent: dict[str, Any], history: list[dict[str, str]], prompt: str) -> list[str]:
+def _effective_tools(
+    agent: dict[str, Any],
+    history: list[dict[str, str]],
+    prompt: str,
+    parent_agent_id: str | None = None,
+) -> list[str]:
     del history, prompt
     effective = normalize_tool_ids(list(agent.get("tools") or []))
     for scope in approved_scopes(str(agent.get("id") or "")):
         tool_id = tool_for_scope(scope)
         if tool_id and tool_id not in effective:
             effective.append(tool_id)
+    if parent_agent_id:
+        parent = get_agent(parent_agent_id)
+        if parent:
+            for tool_id in inheritable_tool_ids(list(parent.get("tools") or [])):
+                if tool_id not in effective:
+                    effective.append(tool_id)
     return effective
 
 
-def _effective_scopes(agent: dict[str, Any], effective: list[str]) -> set[str]:
+def _effective_scopes(
+    agent: dict[str, Any],
+    effective: list[str],
+    parent_agent_id: str | None = None,
+) -> set[str]:
     scopes = approved_scopes(str(agent.get("id") or ""))
     declared = normalize_tool_ids(list(agent.get("tools") or []))
     if "permissions" in agent:
@@ -146,6 +164,24 @@ def _effective_scopes(agent: dict[str, Any], effective: list[str]) -> set[str]:
     else:
         permanent = scopes_for_tools(declared)
     scopes.update(permanent)
+
+    if parent_agent_id:
+        parent = get_agent(parent_agent_id)
+        if parent:
+            parent_declared = normalize_tool_ids(list(parent.get("tools") or []))
+            inherited_tools = inheritable_tool_ids(parent_declared)
+            if inherited_tools:
+                if "permissions" in parent:
+                    parent_permanent = normalize_scopes(list(parent.get("permissions") or []))
+                else:
+                    parent_permanent = scopes_for_tools(parent_declared)
+                inherited_valid = {
+                    scope
+                    for tool_id in inherited_tools
+                    for scope in scopes_for_tool(tool_id)
+                }
+                scopes.update(scope for scope in parent_permanent if scope in inherited_valid)
+
     if str(agent.get("id") or "") == "general":
         scopes.add("actis.admin")
     allowed_tools = set(effective)
@@ -158,11 +194,12 @@ def _tool_instructions(effective: list[str], scopes: set[str]) -> str:
     catalog = list_tool_catalog()
     text = (
         "\n\nTOOLS DO ACTIS GEN: você sempre pode consultar actis_list_tools. "
-        f"Tools declaradas/autorizadas neste run: {effective}. "
+        f"Tools declaradas/autorizadas/herdadas neste run: {effective}. "
         f"Escopos autorizados: {sorted(scopes)}. "
         "Se precisar de uma capacidade não autorizada, peça aprovação usando EXATAMENTE uma linha "
         "ACTIS_APPROVAL_REQUEST: <scope>. Exemplos: files.read, files.write, terminal.exec, "
-        "computer.view, computer.control, browser.read, browser.interact. Não invente scopes. "
+        "computer.view, computer.control, browser.read, browser.interact, spreadsheet.read, "
+        "spreadsheet.write. Não invente scopes. "
         f"Catálogo: {json.dumps(catalog, ensure_ascii=False)}"
     )
     if "harness_computer" in effective:
@@ -171,6 +208,7 @@ def _tool_instructions(effective: list[str], scopes: set[str]) -> str:
             "Essa tool devolve descrição visual e coordenadas físicas da tela. "
             "Depois use as ações do Harness Computer. Observe novamente após mudanças importantes."
         )
+    text += skill_instructions_for_tools(effective)
     return text
 
 
@@ -241,6 +279,10 @@ def _runtime_tools(
         tools.append(build_harness_computer(scopes, run_id=run_id, agent_id=agent_id))
         if "computer.view" in scopes or "computer.control" in scopes:
             tools.append(build_computer_observer(env_file, model))
+    if "skill_excel" in effective:
+        from meuharness.spreadsheet_tools import build_excel_tools
+
+        tools.extend(build_excel_tools(scopes, run_id=run_id, agent_id=agent_id))
     return tools
 
 
@@ -273,8 +315,8 @@ async def execute_agent(
     source = _source(source)
     model = str(agent.get("model") or "").strip()
     settings = NineRouterSettings.from_env(env_file, model=model or None)
-    effective = _effective_tools(agent, history_clean, prompt)
-    scopes = _effective_scopes(agent, effective)
+    effective = _effective_tools(agent, history_clean, prompt, parent_agent_id)
+    scopes = _effective_scopes(agent, effective, parent_agent_id)
     uses_computer = "harness_computer" in effective
     if uses_computer:
         active = active_computer_run_ids()
