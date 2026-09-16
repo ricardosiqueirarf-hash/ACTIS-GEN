@@ -15,14 +15,22 @@
 <rect x="480" y="356" width="158" height="38" fill="#090b0e" stroke="#303642"/><rect x="480" y="356" width="4" height="38" fill="#bb9af7"/><text x="498" y="380" fill="#bb9af7">MAF</text>
 <rect x="650" y="356" width="178" height="38" fill="#090b0e" stroke="#303642"/><rect x="650" y="356" width="4" height="38" fill="#e0af68"/><text x="668" y="380" fill="#e0af68">9ROUTER</text>
 </g>
-<g transform="translate(1120 125)" shape-rendering="crispEdges">
+<g transform="translate(1120 125)" shape-rendering="geometricPrecision">
 <rect x="0" y="0" width="340" height="260" fill="#090b0e" stroke="#242831"/>
 <text x="18" y="28" fill="#536074" font-family="Berkeley Mono,IBM Plex Mono,monospace" font-size="12">#AGENT / RUNTIME</text>
-<rect x="86" y="62" width="18" height="18" fill="#d7ff64"/><rect x="104" y="62" width="18" height="18" fill="#d7ff64"/><rect x="122" y="62" width="18" height="18" fill="#d7ff64"/>
-<rect x="68" y="80" width="90" height="18" fill="#d7ff64"/><rect x="50" y="98" width="126" height="18" fill="#d7ff64"/>
-<rect x="50" y="116" width="36" height="18" fill="#d7ff64"/><rect x="86" y="116" width="18" height="18" fill="#e8edf5"/><rect x="104" y="116" width="18" height="18" fill="#d7ff64"/><rect x="122" y="116" width="18" height="18" fill="#e8edf5"/><rect x="140" y="116" width="36" height="18" fill="#d7ff64"/>
-<rect x="50" y="134" width="126" height="18" fill="#d7ff64"/><rect x="68" y="152" width="36" height="18" fill="#d7ff64"/><rect x="104" y="152" width="36" height="18" fill="#090a0d"/><rect x="140" y="152" width="18" height="18" fill="#d7ff64"/>
-<rect x="68" y="170" width="90" height="18" fill="#d7ff64"/>
+<g transform="translate(93 43) scale(1.1)">
+  <ellipse cx="70" cy="111" rx="27" ry="4" fill="#000" opacity=".18"/>
+  <ellipse cx="70" cy="62" rx="39" ry="44" transform="rotate(-12 70 62)" fill="#fff"/>
+  <g fill="#08090b">
+    <path d="M54 39 L67 44 L66 54 Q60 59 55 53Z"/>
+    <path d="M77 42 L89 34 L88 50 Q82 56 77 51Z"/>
+  </g>
+  <g>
+    <path d="M43 22L38 5l17 9L66 1l11 14L94 7l-5 22z" fill="#f4c34e" stroke="#a9781c" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M44 23l44 5" stroke="#ffe39a" stroke-width="3"/>
+    <circle cx="66" cy="19" r="3" fill="#7aa2f7"/>
+  </g>
+</g>
 <text x="18" y="224" fill="#d8dee9" font-family="Berkeley Mono,IBM Plex Mono,monospace" font-size="14" font-weight="700">GENERAL</text>
 <text x="18" y="246" fill="#737b8c" font-family="Berkeley Mono,IBM Plex Mono,monospace" font-size="11">STATUS</text><text x="278" y="246" fill="#9ece6a" text-anchor="end" font-family="Berkeley Mono,IBM Plex Mono,monospace" font-size="11">● READY</text>
 </g>
