@@ -42,6 +42,17 @@ echo "[ACTIS] Instalando ferramentas Node/9Router..."
 npm install -g 9router @modelcontextprotocol/server-filesystem mcp-shell-server || \
   echo "[ACTIS] AVISO: uma ferramenta Node opcional não instalou; o Core continuará disponível."
 
+# O ACTIS desktop histórico procura os MCPs neste caminho NVM. No Android criamos
+# shims para os binários reais do Termux, sem duplicar o kernel de execução.
+COMPAT_NODE_BIN="$HOME/.nvm/versions/node/v24.21.0/bin"
+mkdir -p "$COMPAT_NODE_BIN"
+for tool in node npm npx 9router mcp-server-filesystem mcp-shell-server; do
+  resolved="$(command -v "$tool" 2>/dev/null || true)"
+  if [ -n "$resolved" ]; then
+    ln -sf "$resolved" "$COMPAT_NODE_BIN/$tool"
+  fi
+done
+
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<'EOF'
 ACTIS_RUNTIME=android-termux
