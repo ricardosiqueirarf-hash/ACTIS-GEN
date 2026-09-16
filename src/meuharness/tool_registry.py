@@ -1,7 +1,8 @@
-"""ACTIS GEN tool catalog and canonical names."""
+"""ACTIS GEN tool catalog, skill sets and canonical names."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 TOOL_ALIASES = {
@@ -15,6 +16,11 @@ TOOL_ALIASES = {
     "computer": "harness_computer",
     "computer_use": "harness_computer",
     "harness_computer": "harness_computer",
+    "excel": "skill_excel",
+    "spreadsheet": "skill_excel",
+    "xlsx": "skill_excel",
+    "excel_spreadsheet": "skill_excel",
+    "skill_excel": "skill_excel",
 }
 
 TOOL_CATALOG: list[dict[str, Any]] = [
@@ -27,6 +33,7 @@ TOOL_CATALOG: list[dict[str, Any]] = [
         "description": "Navegação web isolada via Browser Harness e Chrome headless gerenciado por agente.",
         "capabilities": ["navigate", "click", "type", "tabs", "screenshot", "upload"],
         "scopes": ["browser.read", "browser.interact"],
+        "inheritable": False,
     },
     {
         "id": "harness_files",
@@ -37,6 +44,7 @@ TOOL_CATALOG: list[dict[str, Any]] = [
         "description": "Arquivos locais via MCP Filesystem oficial, limitado ao diretório do usuário.",
         "capabilities": ["read", "write", "edit", "search", "move", "metadata"],
         "scopes": ["files.read", "files.write"],
+        "inheritable": False,
     },
     {
         "id": "harness_terminal",
@@ -47,6 +55,7 @@ TOOL_CATALOG: list[dict[str, Any]] = [
         "description": "Terminal, processos e sessões locais via MCP Shell Server.",
         "capabilities": ["shell", "processes", "terminal", "history", "outputs"],
         "scopes": ["terminal.exec"],
+        "inheritable": False,
     },
     {
         "id": "harness_computer",
@@ -57,6 +66,29 @@ TOOL_CATALOG: list[dict[str, Any]] = [
         "description": "Computer Use real: screenshot, mouse, teclado, apps e janelas via Zavora Computer Use MCP.",
         "capabilities": ["screenshot", "click", "mouse", "keyboard", "scroll", "apps", "windows"],
         "scopes": ["computer.view", "computer.control"],
+        "inheritable": False,
+    },
+    {
+        "id": "skill_excel",
+        "name": "Excel Spreadsheet",
+        "icon": "▦",
+        "status": "ready",
+        "kind": "skill-set",
+        "category": "office",
+        "description": "Skill herdável para criar, ler, editar e validar planilhas Excel .xlsx com fórmulas, formatação, tabelas e gráficos.",
+        "capabilities": [
+            "create_workbook",
+            "inspect_workbook",
+            "edit_cells",
+            "formulas",
+            "formatting",
+            "tables",
+            "charts",
+            "validate_workbook",
+        ],
+        "scopes": ["spreadsheet.read", "spreadsheet.write"],
+        "inheritable": True,
+        "skill_path": "skills/excel/SKILL.md",
     },
     {
         "id": "actis_admin",
@@ -67,6 +99,7 @@ TOOL_CATALOG: list[dict[str, Any]] = [
         "description": "Plano de controle completo do ACTIS GEN para o General.",
         "capabilities": ["agents", "companies", "sectors", "projects", "context", "models", "runs", "tasks", "events", "approvals", "automations", "workflows", "conversations", "delegate"],
         "scopes": ["actis.admin"],
+        "inheritable": False,
     },
 ]
 
@@ -87,9 +120,43 @@ def normalize_tool_ids(values: list[str] | tuple[str, ...] | None) -> list[str]:
     return result
 
 
+def get_tool_definition(tool_id: str) -> dict[str, Any] | None:
+    canonical = canonical_tool_id(tool_id)
+    item = next((item for item in TOOL_CATALOG if item["id"] == canonical), None)
+    return dict(item) if item else None
+
+
 def list_tool_catalog() -> list[dict[str, Any]]:
-    """Return a copy of the public tool catalog."""
+    """Return a copy of the public tool/skill catalog."""
     return [dict(item) for item in TOOL_CATALOG]
+
+
+def inheritable_tool_ids(values: list[str] | tuple[str, ...] | None) -> list[str]:
+    """Return only tools explicitly marked safe to inherit during delegation."""
+    selected = normalize_tool_ids(values)
+    inheritable = {item["id"] for item in TOOL_CATALOG if item.get("inheritable") is True}
+    return [tool_id for tool_id in selected if tool_id in inheritable]
+
+
+def skill_instructions_for_tools(values: list[str] | tuple[str, ...] | None) -> str:
+    """Load SKILL.md instructions for active skill-set tools."""
+    selected = set(normalize_tool_ids(values))
+    blocks: list[str] = []
+    package_root = Path(__file__).resolve().parent
+    for item in TOOL_CATALOG:
+        if item["id"] not in selected or str(item.get("kind") or "").lower() != "skill-set":
+            continue
+        relative = str(item.get("skill_path") or "").strip()
+        if not relative:
+            continue
+        path = package_root / relative
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            text = ""
+        if text:
+            blocks.append(f"\n\nSKILL SET ATIVO — {item['name']}:\n{text}")
+    return "".join(blocks)
 
 
 def scopes_for_tools(tool_ids: list[str] | tuple[str, ...] | None) -> list[str]:
