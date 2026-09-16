@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Clipboard } from '@capacitor/clipboard';
@@ -12,6 +12,7 @@ import { Share } from '@capacitor/share';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
 const native = Capacitor.isNativePlatform();
+const ActisCore = native ? registerPlugin('ActisCore') : null;
 const LOCAL_CORE = 'http://127.0.0.1:8765';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -45,6 +46,7 @@ function ensureBootOverlay() {
       <div class="actis-mobile-setup-kicker">ACTIS ANDROID</div>
       <h2>Iniciando ACTIS Core</h2>
       <p id="actisBootText">Preparando agentes, memória e automações no próprio celular…</p>
+      <pre id="actisBootError" hidden></pre>
       <div class="actis-boot-track"><i></i></div>
       <button id="actisBootRetry" hidden>Tentar novamente</button>
     </div>`;
@@ -52,15 +54,35 @@ function ensureBootOverlay() {
   return overlay;
 }
 
+function compactBootError(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
+  return lines.slice(-8).join('\n').slice(-2200);
+}
+
+async function coreNativeStatus() {
+  if (!native || !ActisCore) return { state: 'web', error: '' };
+  try { return await ActisCore.status(); }
+  catch { return { state: 'unknown', error: '' }; }
+}
+
 async function waitForEmbeddedCore(timeoutMs = 45000) {
   const overlay = ensureBootOverlay();
   const text = overlay.querySelector('#actisBootText');
+  const errorBox = overlay.querySelector('#actisBootError');
   const retry = overlay.querySelector('#actisBootRetry');
   overlay.classList.add('open');
+  overlay.classList.remove('ready', 'failed');
   retry.hidden = true;
+  errorBox.hidden = true;
+  errorBox.textContent = '';
+
+  if (native && ActisCore) await ActisCore.ensureStarted().catch(() => {});
 
   const started = Date.now();
   let attempt = 0;
+  let lastFetchError = '';
   while (Date.now() - started < timeoutMs) {
     attempt += 1;
     try {
@@ -73,17 +95,36 @@ async function waitForEmbeddedCore(timeoutMs = 45000) {
       await sleep(260);
       overlay.classList.remove('open');
       return true;
-    } catch {}
+    } catch (error) {
+      lastFetchError = String(error?.message || error || 'Falha ao conectar ao Core local');
+    }
 
     if (attempt === 3) text.textContent = 'Carregando runtime Python…';
     if (attempt === 8) text.textContent = 'Inicializando banco e serviços locais…';
     if (attempt === 15) text.textContent = 'Primeira inicialização pode demorar um pouco mais…';
+    if (attempt % 5 === 0) {
+      const status = await coreNativeStatus();
+      if (status?.state === 'failed') break;
+      if (status?.state === 'python-ready') text.textContent = 'Python pronto. Carregando ACTIS Core…';
+      if (status?.state === 'core-loading') text.textContent = 'Core carregado. Abrindo banco e servidor local…';
+    }
     await sleep(900);
   }
 
-  text.textContent = 'O Core embutido não conseguiu iniciar. Toque para tentar novamente.';
+  const status = await coreNativeStatus();
+  const detail = compactBootError(status?.error) || lastFetchError;
+  overlay.classList.add('failed');
+  text.textContent = `Falha ao iniciar o Core embutido (${status?.state || 'unknown'}).`;
+  if (detail) {
+    errorBox.hidden = false;
+    errorBox.textContent = detail;
+  }
   retry.hidden = false;
-  retry.onclick = () => waitForEmbeddedCore(timeoutMs);
+  retry.onclick = async () => {
+    retry.hidden = true;
+    if (native && ActisCore) await ActisCore.ensureStarted().catch(() => {});
+    waitForEmbeddedCore(timeoutMs);
+  };
   return false;
 }
 
@@ -178,6 +219,7 @@ window.ACTIS_NATIVE = {
   coreUrl: LOCAL_CORE,
   workerDescriptor,
   testCore,
+  coreStatus: coreNativeStatus,
   async shareText(text, title = 'ACTIS GEN') {
     return Share.share({ title, text: String(text || '') });
   },
