@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Clipboard } from '@capacitor/clipboard';
@@ -14,39 +14,35 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 
 const normalizeBase = value => String(value || '').trim().replace(/\/$/, '');
 const native = Capacitor.isNativePlatform();
+const LOCAL_CORE = 'http://127.0.0.1:8765';
+const TERMUX_INSTALL = "curl -fsSL 'https://raw.githubusercontent.com/ricardosiqueirarf-hash/ACTIS-GEN/feat/android-client/apps/android/termux/install.sh' | bash";
+const TERMUX_START = "bash ~/ACTIS-GEN/apps/android/termux/start-core.sh";
+const TERMUX_STOP = "bash ~/ACTIS-GEN/apps/android/termux/stop-core.sh";
+const TERMUX_BOOTSTRAP_PERMISSION = "mkdir -p ~/.termux; touch ~/.termux/termux.properties; sed -i '/^allow-external-apps=/d' ~/.termux/termux.properties; echo 'allow-external-apps=true' >> ~/.termux/termux.properties; termux-reload-settings";
+const Termux = native ? registerPlugin('ActisTermux') : null;
 
 async function getCoreUrl() {
   const stored = await Preferences.get({ key: 'actis.core.url' });
-  return normalizeBase(stored.value || localStorage.getItem('actis.api.base') || '');
+  return normalizeBase(stored.value || localStorage.getItem('actis.api.base') || (native ? LOCAL_CORE : ''));
 }
 
 async function setCoreUrl(value) {
-  const base = normalizeBase(value);
+  const base = normalizeBase(value || (native ? LOCAL_CORE : ''));
   await Preferences.set({ key: 'actis.core.url', value: base });
+  localStorage.setItem('actis.api.base', base);
   window.actisSetApiBase?.(base);
   return base;
 }
-function setupMarkup(base = '', reason = '') {
-  return `<div class="actis-mobile-setup-card">
-    <div class="actis-mobile-setup-kicker">ACTIS ANDROID</div>
-    <h2>Conectar ao ACTIS Core</h2>
-    <p>${reason || 'Informe o endereço do computador/servidor que executa o ACTIS GEN.'}</p>
-    <label>Endereço do Core</label>
-    <input id="actisCoreUrl" inputmode="url" value="${base}" placeholder="http://192.168.0.10:8765">
-    <div class="actis-mobile-setup-hint">Em emulador Android, normalmente use <code>http://10.0.2.2:8765</code>.</div>
-    <div class="actis-mobile-setup-actions">
-      <button id="actisCoreCancel">Agora não</button>
-      <button class="primary" id="actisCoreConnect">Salvar e conectar</button>
-    </div>
-    <div id="actisCoreResult" class="actis-mobile-setup-result"></div>
-  </div>`;
-}
 
-async function testCore(base) {
+async function testCore(base = LOCAL_CORE) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), 3500);
   try {
-    const response = await fetch(`${base}/api/agents`, { credentials: 'include', signal: controller.signal });
+    const response = await fetch(`${base}/api/agents`, {
+      credentials: 'include',
+      signal: controller.signal,
+      cache: 'no-store',
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = await response.json();
     if (!Array.isArray(body.agents)) throw new Error('Resposta inválida do ACTIS Core');
@@ -55,6 +51,74 @@ async function testCore(base) {
     clearTimeout(timeout);
   }
 }
+
+async function termuxStatus() {
+  if (!native || !Termux) return { installed: false, permission: 'unavailable' };
+  try { return await Termux.status(); }
+  catch { return { installed: false, permission: 'unknown' }; }
+}
+
+async function runTermux(script, background = true) {
+  if (!Termux) throw new Error('Bridge do Termux indisponível.');
+  return Termux.runCommand({ script, background });
+}
+
+async function waitForLocalCore(onTick, timeoutMs = 45000) {
+  const started = Date.now();
+  let attempt = 0;
+  while (Date.now() - started < timeoutMs) {
+    attempt += 1;
+    try {
+      await testCore(LOCAL_CORE);
+      return true;
+    } catch {}
+    onTick?.(attempt);
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+  return false;
+}
+
+function setupMarkup(reason = '') {
+  return `<div class="actis-mobile-setup-card">
+    <div class="actis-mobile-setup-kicker">ACTIS ANDROID · CORE LOCAL</div>
+    <h2>ACTIS Core no próprio celular</h2>
+    <p>${reason || 'O APK usa o Termux como runtime local. Depois de instalado, o ACTIS funciona sem depender do computador.'}</p>
+
+    <div class="actis-core-local-row">
+      <div><span>CORE</span><strong>127.0.0.1:8765</strong></div>
+      <b id="actisLocalCoreState" class="actis-core-state">verificando…</b>
+    </div>
+
+    <div class="actis-mobile-setup-actions local-actions">
+      <button class="primary" id="actisCoreStart">Iniciar Core</button>
+      <button id="actisCoreInstall">Instalar no Termux</button>
+    </div>
+
+    <div class="actis-termux-first">
+      <strong>Primeira configuração</strong>
+      <p>Uma única vez, o Termux precisa permitir comandos enviados pelo ACTIS. Copie o comando abaixo, abra o Termux e execute.</p>
+      <code>${TERMUX_BOOTSTRAP_PERMISSION.replaceAll('<','&lt;').replaceAll('>','&gt;')}</code>
+      <div class="actis-mobile-setup-actions">
+        <button id="actisCopyTermuxSetup">Copiar comando</button>
+        <button id="actisOpenTermux">Abrir Termux</button>
+      </div>
+      <button class="actis-wide-btn" id="actisTermuxPermission">Conceder permissão ao ACTIS</button>
+    </div>
+
+    <details class="actis-remote-core">
+      <summary>Usar Core remoto</summary>
+      <label>Endereço do Core</label>
+      <input id="actisCoreUrl" inputmode="url" value="${LOCAL_CORE}" placeholder="http://192.168.0.10:8765">
+      <div class="actis-mobile-setup-actions">
+        <button id="actisCoreCancel">Fechar</button>
+        <button id="actisCoreConnect">Salvar remoto</button>
+      </div>
+    </details>
+
+    <div id="actisCoreResult" class="actis-mobile-setup-result"></div>
+  </div>`;
+}
+
 async function openCoreSetup(reason = '') {
   let host = document.getElementById('actisMobileSetup');
   if (!host) {
@@ -63,34 +127,111 @@ async function openCoreSetup(reason = '') {
     host.className = 'actis-mobile-setup';
     document.body.appendChild(host);
   }
-  const base = await getCoreUrl();
-  host.innerHTML = setupMarkup(base, reason);
+  host.innerHTML = setupMarkup(reason);
   host.classList.add('open');
-  const input = host.querySelector('#actisCoreUrl');
+
   const result = host.querySelector('#actisCoreResult');
-  host.querySelector('#actisCoreCancel').onclick = () => host.classList.remove('open');
-  host.querySelector('#actisCoreConnect').onclick = async event => {
-    const button = event.currentTarget;
-    const value = normalizeBase(input.value);
-    if (!value) return;
-    button.disabled = true;
-    button.textContent = 'Testando…';
-    result.textContent = '';
+  const state = host.querySelector('#actisLocalCoreState');
+  const input = host.querySelector('#actisCoreUrl');
+  const saved = await getCoreUrl();
+  input.value = saved || LOCAL_CORE;
+
+  const show = (text, ok = false) => {
+    result.textContent = text;
+    result.classList.toggle('ok', ok);
+  };
+
+  try {
+    await testCore(LOCAL_CORE);
+    state.textContent = 'online';
+    state.classList.add('ok');
+    show('Core local já está ativo.', true);
+  } catch {
+    state.textContent = 'offline';
+    state.classList.remove('ok');
+  }
+
+  host.querySelector('#actisCopyTermuxSetup').onclick = async () => {
+    await Clipboard.write({ string: TERMUX_BOOTSTRAP_PERMISSION });
+    show('Comando copiado. Cole no Termux e pressione Enter.', true);
+  };
+
+  host.querySelector('#actisOpenTermux').onclick = async () => {
+    try { await Termux.openTermux(); }
+    catch { show('Termux não encontrado. Instale o Termux e volte ao ACTIS.'); }
+  };
+
+  host.querySelector('#actisTermuxPermission').onclick = async () => {
     try {
-      await testCore(value);
-      await setCoreUrl(value);
-      result.textContent = 'Core encontrado. Reabrindo ACTIS…';
-      result.classList.add('ok');
-      setTimeout(() => location.reload(), 250);
+      const status = await termuxStatus();
+      if (!status.installed) throw new Error('Termux não está instalado.');
+      const permission = await Termux.requestRunPermission();
+      show(permission.granted ? 'Permissão concedida.' : 'Permissão não concedida.', !!permission.granted);
     } catch (error) {
-      result.textContent = `Não foi possível conectar: ${error.message}`;
-      result.classList.remove('ok');
-      button.disabled = false;
-      button.textContent = 'Salvar e conectar';
+      show(error.message || String(error));
     }
   };
-  setTimeout(() => input?.focus(), 120);
+
+  host.querySelector('#actisCoreInstall').onclick = async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const status = await termuxStatus();
+      if (!status.installed) throw new Error('Termux não está instalado. Abra o Termux primeiro.');
+      show('Instalação iniciada no Termux. Ela pode levar alguns minutos…', true);
+      await runTermux(TERMUX_INSTALL, false);
+      const ready = await waitForLocalCore(attempt => {
+        state.textContent = `instalando ${attempt}`;
+      }, 240000);
+      if (!ready) throw new Error('A instalação ainda não terminou. Abra o Termux para ver o progresso.');
+      state.textContent = 'online';
+      state.classList.add('ok');
+      await setCoreUrl(LOCAL_CORE);
+      show('Core instalado e online. Abrindo ACTIS…', true);
+      setTimeout(() => location.reload(), 350);
+    } catch (error) {
+      button.disabled = false;
+      state.textContent = 'offline';
+      show(error.message || String(error));
+    }
+  };
+
+  host.querySelector('#actisCoreStart').onclick = async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await runTermux(TERMUX_START, true);
+      show('Iniciando Core local…', true);
+      const ready = await waitForLocalCore(attempt => { state.textContent = `iniciando ${attempt}`; });
+      if (!ready) throw new Error('Core não iniciou. Se ainda não foi instalado, use “Instalar no Termux”.');
+      state.textContent = 'online';
+      state.classList.add('ok');
+      await setCoreUrl(LOCAL_CORE);
+      show('Core online. Abrindo ACTIS…', true);
+      setTimeout(() => location.reload(), 300);
+    } catch (error) {
+      button.disabled = false;
+      state.textContent = 'offline';
+      show(error.message || String(error));
+    }
+  };
+
+  host.querySelector('#actisCoreCancel').onclick = () => host.classList.remove('open');
+  host.querySelector('#actisCoreConnect').onclick = async () => {
+    const value = normalizeBase(input.value);
+    if (!value) return;
+    try {
+      show('Testando Core remoto…');
+      await testCore(value);
+      await setCoreUrl(value);
+      show('Core encontrado. Abrindo ACTIS…', true);
+      setTimeout(() => location.reload(), 300);
+    } catch (error) {
+      show(`Não foi possível conectar: ${error.message}`);
+    }
+  };
 }
+
 function createMobileNav() {
   if (document.getElementById('actisMobileNav')) return;
   const options = [
@@ -117,6 +258,7 @@ function createMobileNav() {
     document.querySelector('.app')?.classList.toggle('nav-open');
   };
 }
+
 async function bindNativeChrome() {
   if (!native) return;
   await StatusBar.setStyle({ style: Style.Light }).catch(() => {});
@@ -133,6 +275,8 @@ async function bindNativeChrome() {
   });
 
   App.addListener('backButton', () => {
+    const setup = document.getElementById('actisMobileSetup');
+    if (setup?.classList.contains('open')) { setup.classList.remove('open'); return; }
     const modal = document.querySelector('#modalRoot .modal-backdrop');
     if (modal) { window.closeModal?.(); return; }
     const app = document.querySelector('.app');
@@ -141,6 +285,7 @@ async function bindNativeChrome() {
     App.minimizeApp();
   });
 }
+
 async function bindNetworkState() {
   if (!native) return;
   const apply = status => {
@@ -165,15 +310,19 @@ async function workerDescriptor() {
     platform: 'android',
     model: info.model,
     osVersion: info.osVersion,
-    capabilities: ['android.device','android.share','android.clipboard','android.files','android.camera','android.notifications'],
+    capabilities: ['android.device','android.share','android.clipboard','android.files','android.camera','android.notifications','actis.core.local'],
   };
 }
+
 window.ACTIS_NATIVE = {
   native,
   getCoreUrl,
   setCoreUrl,
   openCoreSetup,
   workerDescriptor,
+  termuxStatus,
+  startLocalCore: () => runTermux(TERMUX_START, true),
+  stopLocalCore: () => runTermux(TERMUX_STOP, true),
   async shareText(text, title = 'ACTIS GEN') {
     return Share.share({ title, text: String(text || '') });
   },
@@ -197,13 +346,17 @@ window.ACTIS_NATIVE = {
     return LocalNotifications.schedule({ notifications: [{ id: Date.now() % 2147483647, title, body }] });
   },
 };
+
+let coreSetupOpening = false;
 window.ACTIS_MOBILE = {
   onApiError(error, base) {
-    if (!native) return;
-    const reason = base
-      ? `O Core em ${base} não respondeu. Verifique a rede ou altere o endereço.`
-      : 'Este aparelho ainda não está conectado a um ACTIS Core.';
-    openCoreSetup(reason).catch(() => {});
+    if (!native || coreSetupOpening) return;
+    coreSetupOpening = true;
+    const local = !base || normalizeBase(base) === LOCAL_CORE;
+    const reason = local
+      ? 'O Core local está parado ou ainda não foi instalado no Termux.'
+      : `O Core em ${base} não respondeu. Você pode voltar ao Core local do celular.`;
+    openCoreSetup(reason).catch(() => {}).finally(() => { coreSetupOpening = false; });
   },
 };
 
@@ -214,8 +367,16 @@ async function init() {
   await bindNetworkState();
 
   const saved = await getCoreUrl();
-  if (saved && saved !== window.ACTIS_API_BASE) window.actisSetApiBase?.(saved);
-  if (native && !saved) await openCoreSetup();
+  if (saved !== window.ACTIS_API_BASE) window.actisSetApiBase?.(saved);
+
+  if (native) {
+    try {
+      await testCore(saved || LOCAL_CORE);
+      if (!localStorage.getItem('actis.api.base')) await setCoreUrl(saved || LOCAL_CORE);
+    } catch {
+      await openCoreSetup('O Core local está parado ou ainda não foi instalado no Termux.');
+    }
+  }
 
   document.querySelector('#connection')?.addEventListener('click', () => openCoreSetup());
   document.querySelector('#refresh')?.addEventListener('click', () => {
