@@ -5,7 +5,7 @@ import re
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from meuharness.storage import connect, init_db
+from meuharness.storage import connect, init_db, memory_search_uses_fts5
 
 
 def _now() -> str:
@@ -40,13 +40,27 @@ def _query_terms(text: str) -> list[str]:
     return result[:8]
 
 
+def _recall_like(conn, agent_id: str, terms: list[str], max_items: int):
+    if not terms:
+        return []
+    clauses = " OR ".join("LOWER(content) LIKE ?" for _ in terms)
+    params = [agent_id, *[f"%{term.lower()}%" for term in terms], max_items]
+    return list(conn.execute(
+        f"""SELECT id,content,created_at,conversation_id FROM memories
+            WHERE agent_id=? AND ({clauses})
+            ORDER BY created_at DESC LIMIT ?""",
+        params,
+    ).fetchall())
+
+
 def recall(agent_id: str, prompt: str, *, limit: int = 6) -> list[dict[str, str]]:
     init_db()
     terms = _query_terms(prompt)
     max_items = max(1, min(limit, 20))
+    fts5 = memory_search_uses_fts5()
     with connect() as conn:
         rows = []
-        if terms:
+        if terms and fts5:
             query = " OR ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
             rows = list(conn.execute(
                 """SELECT m.id,m.content,m.created_at,m.conversation_id
@@ -55,6 +69,8 @@ def recall(agent_id: str, prompt: str, *, limit: int = 6) -> list[dict[str, str]
                    ORDER BY bm25(memories_fts), m.created_at DESC LIMIT ?""",
                 (agent_id, query, max_items),
             ).fetchall())
+        elif terms:
+            rows = _recall_like(conn, agent_id, terms, max_items)
         seen = {str(row["id"]) for row in rows}
         if len(rows) < max_items:
             recent = conn.execute(
