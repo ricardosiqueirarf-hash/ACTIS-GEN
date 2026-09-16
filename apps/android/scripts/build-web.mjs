@@ -15,8 +15,8 @@ html = html.replace(
   'width=device-width,initial-scale=1',
   'width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1',
 );
-const bootstrap = `<script>\n(() => {\n  document.documentElement.classList.add('actis-mobile');\n  const q = new URLSearchParams(location.search).get('api');\n  if (q) localStorage.setItem('actis.api.base', q.replace(/\\/$/, ''));\n  window.ACTIS_API_BASE = localStorage.getItem('actis.api.base') || '';\n})();\n</script>`;
-html = html.replace('</head>', `<link rel="stylesheet" href="/mobile.css?v=1">${bootstrap}</head>`);
+const bootstrap = `<script>\n(() => {\n  document.documentElement.classList.add('actis-mobile');\n  const q = new URLSearchParams(location.search).get('api');\n  if (q) localStorage.setItem('actis.api.base', q.replace(/\\/$/, ''));\n  const saved = localStorage.getItem('actis.api.base');\n  window.ACTIS_API_BASE = saved || 'http://127.0.0.1:8765';\n})();\n</script>`;
+html = html.replace('</head>', `<link rel="stylesheet" href="/mobile.css?v=2">${bootstrap}</head>`);
 html = html.replace('</body>', '<script src="/mobile-runtime.js"></script></body>');
 await writeFile(path.join(www, 'index.html'), html);
 try {
