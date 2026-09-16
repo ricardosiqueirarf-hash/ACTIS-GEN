@@ -15,15 +15,16 @@ html = html.replace(
   'width=device-width,initial-scale=1',
   'width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1',
 );
-const bootstrap = `<script>\n(() => {\n  document.documentElement.classList.add('actis-mobile');\n  const q = new URLSearchParams(location.search).get('api');\n  if (q) localStorage.setItem('actis.api.base', q.replace(/\\/$/, ''));\n  const localCore = 'http://127.0.0.1:8765';\n  window.ACTIS_API_BASE = localStorage.getItem('actis.api.base') || localCore;\n  localStorage.setItem('actis.api.base', window.ACTIS_API_BASE);\n})();\n</script>`;
-html = html.replace('</head>', `<link rel="stylesheet" href="/mobile.css?v=3">${bootstrap}</head>`);
-html = html.replace('</body>', '<script src="/mobile-runtime.js?v=3"></script></body>');
+const bootstrap = `<script>\n(() => {\n  document.documentElement.classList.add('actis-mobile');\n  const q = new URLSearchParams(location.search).get('api');\n  const localCore = 'http://127.0.0.1:8765';\n  window.ACTIS_API_BASE = q ? q.replace(/\\/$/, '') : localCore;\n  localStorage.setItem('actis.api.base', window.ACTIS_API_BASE);\n})();\n</script>`;
+html = html.replace('</head>', `<link rel="stylesheet" href="/mobile.css?v=4"><link rel="stylesheet" href="/embedded-core.css?v=1">${bootstrap}</head>`);
+html = html.replace('</body>', '<script src="/mobile-runtime.js?v=4"></script></body>');
 await writeFile(path.join(www, 'index.html'), html);
 try {
   await access(path.join(sourceRoot, 'visual-system.css'));
   await copyFile(path.join(sourceRoot, 'visual-system.css'), path.join(www, 'assets/visual-system.css'));
 } catch {}
 await copyFile(path.join(androidRoot, 'src/mobile.css'), path.join(www, 'mobile.css'));
+await copyFile(path.join(androidRoot, 'src/embedded-core.css'), path.join(www, 'embedded-core.css'));
 
 await build({
   entryPoints: [path.join(androidRoot, 'src/mobile-runtime.js')],
