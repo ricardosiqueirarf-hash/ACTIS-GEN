@@ -1,0 +1,12 @@
+html.actis-mobile .actis-embedded-boot{position:fixed;z-index:500;inset:0;display:grid;place-items:center;padding:24px;background:#08090bf2;backdrop-filter:blur(14px);opacity:0;pointer-events:none;transition:opacity .22s ease}
+html.actis-mobile .actis-embedded-boot.open{opacity:1;pointer-events:auto}
+html.actis-mobile .actis-embedded-boot.ready{opacity:0}
+html.actis-mobile .actis-embedded-boot-card{width:min(100%,420px);padding:28px 22px;border:1px solid #28313d;background:#0b0e12;box-shadow:0 30px 90px #000c;text-align:center}
+html.actis-mobile .actis-embedded-bot{width:62px;height:62px;margin:0 auto 16px;display:grid;place-items:center;border-radius:22px;background:#dfe6ee;color:#11151a;font-size:34px;animation:actisCorePulse 1.45s ease-in-out infinite}
+html.actis-mobile .actis-embedded-boot h2{margin:4px 0 8px;font-size:22px;color:#edf2f8}
+html.actis-mobile .actis-embedded-boot p{min-height:42px;margin:0;color:#93a0b4;font-size:13px;line-height:1.6}
+html.actis-mobile .actis-boot-track{height:4px;margin:20px 0 0;overflow:hidden;background:#151a21}
+html.actis-mobile .actis-boot-track i{display:block;width:42%;height:100%;background:#9ece6a;animation:actisCoreTrack 1.15s cubic-bezier(.55,.1,.45,.9) infinite}
+html.actis-mobile .actis-embedded-boot button{width:100%;margin-top:18px;border:1px solid #365078;background:#162238;color:#c7daf8;font-size:13px}
+@keyframes actisCoreTrack{0%{transform:translateX(-110%)}100%{transform:translateX(340%)}}
+@keyframes actisCorePulse{0%,100%{transform:translateY(0) scale(.96);box-shadow:0 0 0 0 #9ece6a00}50%{transform:translateY(-4px) scale(1);box-shadow:0 0 0 9px #9ece6a12,0 0 30px #9ece6a20}}
