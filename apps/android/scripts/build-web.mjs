@@ -17,7 +17,7 @@ html = html.replace(
 );
 const bootstrap = `<script>\n(() => {\n  document.documentElement.classList.add('actis-mobile');\n  const q = new URLSearchParams(location.search).get('api');\n  if (q) localStorage.setItem('actis.api.base', q.replace(/\\/$/, ''));\n  const saved = localStorage.getItem('actis.api.base');\n  window.ACTIS_API_BASE = saved || 'http://127.0.0.1:8765';\n})();\n</script>`;
 html = html.replace('</head>', `<link rel="stylesheet" href="/mobile.css?v=2">${bootstrap}</head>`);
-html = html.replace('</body>', '<script src="/mobile-runtime.js"></script></body>');
+html = html.replace('</body>', '<script src="/mobile-runtime.js"></script><script src="/termux-autostart.js"></script></body>');
 await writeFile(path.join(www, 'index.html'), html);
 try {
   await access(path.join(sourceRoot, 'visual-system.css'));
@@ -25,14 +25,19 @@ try {
 } catch {}
 await copyFile(path.join(androidRoot, 'src/mobile.css'), path.join(www, 'mobile.css'));
 
-await build({
-  entryPoints: [path.join(androidRoot, 'src/mobile-runtime.js')],
-  bundle: true,
-  minify: false,
-  format: 'iife',
-  platform: 'browser',
-  outfile: path.join(www, 'mobile-runtime.js'),
-  target: ['chrome120'],
-});
+for (const [entry, output] of [
+  ['mobile-runtime.js', 'mobile-runtime.js'],
+  ['termux-autostart.js', 'termux-autostart.js'],
+]) {
+  await build({
+    entryPoints: [path.join(androidRoot, 'src', entry)],
+    bundle: true,
+    minify: false,
+    format: 'iife',
+    platform: 'browser',
+    outfile: path.join(www, output),
+    target: ['chrome120'],
+  });
+}
 
 console.log(`ACTIS Android web bundle atualizado em ${www}`);
