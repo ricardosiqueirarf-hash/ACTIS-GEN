@@ -37,10 +37,15 @@ source "$VENV/bin/activate"
 python -m pip install -U setuptools wheel
 python -m pip install -e "$ROOT"
 
-# Ferramentas diretas do Core. Falhas aqui não impedem o servidor ACTIS de subir.
-echo "[ACTIS] Instalando ferramentas Node/9Router..."
-npm install -g 9router @modelcontextprotocol/server-filesystem mcp-shell-server || \
-  echo "[ACTIS] AVISO: uma ferramenta Node opcional não instalou; o Core continuará disponível."
+# Files/terminal são capacidades diretas e não devem depender do 9Router instalar.
+echo "[ACTIS] Instalando MCPs locais..."
+npm install -g @modelcontextprotocol/server-filesystem mcp-shell-server || \
+  echo "[ACTIS] AVISO: MCPs opcionais não instalaram; a UI/Core continuarão disponíveis."
+
+# 9Router é separado porque alguns builds Android podem precisar compilar dependências nativas.
+echo "[ACTIS] Instalando 9Router local..."
+npm install -g 9router || \
+  echo "[ACTIS] AVISO: 9Router não instalou. O Core sobe normalmente, mas agentes de IA precisam de um endpoint OpenAI compatível configurado em $ENV_FILE."
 
 # O ACTIS desktop histórico procura os MCPs neste caminho NVM. No Android criamos
 # shims para os binários reais do Termux, sem duplicar o kernel de execução.
