@@ -20,14 +20,15 @@ ExecutionService.execute_agent()
         ↓
 1. carrega definição do agente
 2. seleciona modelo / settings do 9Router
-3. resolve tools e scopes efetivos
-4. resolve contexto organizacional
-5. recupera memória persistente
-6. cria Run e publica run.started
-7. monta HarnessRequest
-8. Harness Core → MAF → 9Router
-9. MCP tools quando autorizadas
-10. finaliza Run / memória / Event Bus
+3. resolve tools, skill sets e scopes efetivos
+4. herda skill sets explicitamente herdáveis quando existe parent_agent_id
+5. resolve contexto organizacional
+6. recupera memória persistente
+7. cria Run e publica run.started
+8. monta HarnessRequest
+9. Harness Core → MAF → 9Router
+10. MCP/native tools quando autorizadas
+11. finaliza Run / memória / Event Bus
 ```
 
 ## Camadas
@@ -36,7 +37,10 @@ ExecutionService.execute_agent()
 |---|---|
 | `web_assets/index.html` | SPA local: Agentes, World, Automações, Workflows, Approvals, Eventos, Runs, Modelos, Tools, Empresas e Sobre |
 | `web.py` | API HTTP local, integração da UI e operações administrativas |
-| `execution_service.py` | kernel único de execução |
+| `execution_service.py` | kernel único de execução e herança segura de skill sets |
+| `tool_registry.py` | catálogo de MCPs, nativas e skill sets; aliases, scopes e metadados de herança |
+| `skills/*/SKILL.md` | instruções operacionais carregadas apenas quando a skill está ativa |
+| `spreadsheet_tools.py` | runtime nativo da skill Excel `.xlsx` |
 | `core/` | contratos neutros, Harness, deadline e erros |
 | `adapters/maf/` | adaptação para Microsoft Agent Framework e MCPs |
 | `providers/nine_router/` | settings, client OpenAI-compatible, catálogo e probe direto |
@@ -57,10 +61,45 @@ ExecutionService.execute_agent()
 2. MAF fica atrás de `adapters/maf`.
 3. 9Router resolve provider/modelo; ACTIS GEN resolve agente/capability/contexto/permissão.
 4. Browser/Files/Terminal/Computer são capabilities; não devem carregar regra de negócio.
-5. Conversation, Run, Automation e Workflow Run são entidades diferentes.
-6. Empresa/setor/projeto são espaços de contexto e organização; não são threads de conversa.
-7. Memória conversacional e contexto organizacional são sistemas separados.
-8. Approvals concedem scopes; não devem ser confundidos com a simples existência de uma tool no catálogo.
+5. Skill sets adicionam conhecimento operacional + tools determinísticas sem criar um novo harness.
+6. Conversation, Run, Automation e Workflow Run são entidades diferentes.
+7. Empresa/setor/projeto são espaços de contexto e organização; não são threads de conversa.
+8. Memória conversacional e contexto organizacional são sistemas separados.
+9. Approvals concedem scopes; não devem ser confundidos com a simples existência de uma tool no catálogo.
+10. Herança é opt-in por tool (`inheritable=true`); MCPs sensíveis não são herdados automaticamente.
+
+## Skill sets herdáveis
+
+Skill sets ficam no mesmo catálogo exibido em **Tools**, mas usam `kind: skill-set`. Cada skill pode fornecer um `SKILL.md` e um runtime nativo/MCP.
+
+Quando um agente delega para outro (`parent_agent_id`), apenas tools explicitamente marcadas como `inheritable=true` entram no conjunto efetivo do agente filho. Os scopes herdados seguem uma regra mais restritiva:
+
+- somente permissões **permanentes** do agente pai podem acompanhar a skill;
+- approvals temporários/dinâmicos do pai **não** são herdados;
+- o filho continua podendo solicitar seu próprio approval quando faltar scope.
+
+### Excel Spreadsheet
+
+`skill_excel` é o primeiro skill set herdável do ACTIS GEN.
+
+```text
+skill_excel
+├─ spreadsheet.read
+└─ spreadsheet.write
+```
+
+Capacidades atuais:
+
+- criar `.xlsx`;
+- inspecionar workbook, abas e ranges;
+- editar células, ranges, linhas e colunas;
+- fórmulas;
+- formatação e number formats;
+- Excel Tables;
+- gráficos bar/line/pie;
+- validação estrutural antes da entrega.
+
+A implementação usa `openpyxl` e mantém as fórmulas no workbook. Como `openpyxl` não calcula resultados de fórmulas, o arquivo é marcado para recalcular quando aberto no Excel/LibreOffice.
 
 ## Contexto
 
@@ -92,10 +131,12 @@ files.write
 terminal.exec
 computer.view
 computer.control
+spreadsheet.read
+spreadsheet.write
 actis.admin
 ```
 
-Um agente pode ter tools declaradas e uma lista permanente de `permissions`. Approvals aprovados adicionam scopes dinamicamente. Browser, Files e Computer filtram as operações MCP reais por scope.
+Um agente pode ter tools declaradas e uma lista permanente de `permissions`. Approvals aprovados adicionam scopes dinamicamente. Browser, Files e Computer filtram as operações MCP reais por scope. Excel filtra leitura e mutação do workbook por `spreadsheet.read`/`spreadsheet.write`.
 
 ## Concorrência
 
@@ -106,4 +147,4 @@ Um agente pode ter tools declaradas e uma lista permanente de `permissions`. App
 
 ## Estado do repositório
 
-Auditoria de 2026-09-15: branch `feat/runtime-foundation`, com várias mudanças do ACTIS GEN ainda não commitadas. Portanto esta documentação descreve o **working tree**, não apenas o último commit.
+A documentação deve acompanhar o estado real do repositório. Features novas que alterem capabilities, herança, execução ou comportamento do General devem atualizar esta arquitetura no mesmo conjunto de mudanças.
