@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 
+from meuharness.agents import list_agents
 from meuharness.automations import (
     claim_due_automations,
     record_condition,
@@ -16,6 +17,16 @@ from meuharness.event_bus import emit_event
 from meuharness.execution_service import execute_agent
 
 LOGGER = logging.getLogger("meuharness.automation_scheduler")
+
+
+def _condition_evaluator_agent_id() -> str:
+    for agent in list_agents():
+        if "actis.control-plane" in list(agent.get("skills") or []):
+            return str(agent.get("id"))
+    for agent in list_agents():
+        if "actis_admin" in list(agent.get("tools") or []):
+            return str(agent.get("id"))
+    raise RuntimeError("Nenhum agente com skill actis.control-plane disponível para avaliar condição.")
 
 
 def _run_action(automation: dict, env_file: str | None = None) -> None:
@@ -39,7 +50,7 @@ def _check_condition(automation: dict, env_file: str | None = None) -> None:
         "Na segunda linha, explique em uma frase.\n\nCONDIÇÃO: " + str(automation.get("condition") or "")
     )
     try:
-        result = asyncio.run(execute_agent("general", prompt, source="automation_condition", env_file=env_file))
+        result = asyncio.run(execute_agent(_condition_evaluator_agent_id(), prompt, source="automation_condition", env_file=env_file))
         text = result.text.strip()
         active = (text.splitlines() or [""])[0].strip().upper().startswith("ACTIS_TRIGGER")
         updated, trigger = record_condition(automation_id, active, text)

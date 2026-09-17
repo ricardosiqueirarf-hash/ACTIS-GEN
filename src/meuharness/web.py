@@ -13,16 +13,18 @@ import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 _GLOBAL_CHAT_BUSY_LOCK = threading.Lock()
 _GLOBAL_CHAT_BUSY_AGENTS: set[str] = set()
 
 from meuharness import HarnessError
+from meuharness.artifacts import artifact_file, list_run_attachments
+from meuharness.chat_attachments import history_content_with_attachment_refs, normalize_chat_attachments
 from meuharness.agents import (
     append_conversation_message,
     cancel_run_record,
-    cancel_stale_running_runs,
+    interrupt_stale_running_runs,
     create_agent,
     create_company,
     create_conversation,
@@ -54,6 +56,19 @@ from meuharness.automations import (
 )
 from meuharness.browser_control import action as browser_action
 from meuharness.browser_control import snapshot as browser_snapshot
+from meuharness.channels import (
+    create_channel,
+    create_channel_message,
+    delete_channel,
+    delete_channel_message,
+    get_channel,
+    list_channel_messages,
+    list_channels,
+    set_channel_members,
+    update_channel_message,
+)
+from meuharness.connectors import delete_connector, list_connectors, save_connector, test_connector
+from meuharness.company_bus import list_company_tasks
 from meuharness.contexts import (
     create_context_item,
     create_project,
@@ -63,13 +78,25 @@ from meuharness.contexts import (
     list_projects,
     set_agent_project_bindings,
 )
+from meuharness.durable_runs import list_checkpoints
 from meuharness.event_bus import list_events
-from meuharness.execution_service import cancel_active_run, execute_agent
+from meuharness.execution_service import cancel_active_run, execute_agent, resume_run
 from meuharness.memory import recall
 from meuharness.providers.nine_router import NineRouterGateway, NineRouterSettings
+from meuharness.skills import (
+    list_skill_catalog,
+    runtime_features_for_skills,
+    scopes_for_skills,
+    tools_for_skills,
+)
 from meuharness.storage import DB_FILE
-from meuharness.tasks import list_tasks
-from meuharness.tool_registry import list_tool_catalog, normalize_scopes, scopes_for_tools
+from meuharness.tasks import list_tasks, reconcile_tasks_with_runs
+from meuharness.tool_registry import (
+    list_tool_catalog,
+    normalize_scopes,
+    normalize_tool_ids,
+    scopes_for_tools,
+)
 from meuharness.workflows import (
     delete_workflow,
     get_workflow,
@@ -81,6 +108,90 @@ from meuharness.workflows import (
 )
 
 INDEX = Path(__file__).with_name("web_assets") / "index.html"
+
+
+_SYSTEM_USAGE_LOCK = threading.Lock()
+_SYSTEM_USAGE_CPU: dict[int, float] = {}
+_SYSTEM_USAGE_AT: float | None = None
+
+
+def _actis_process_snapshot() -> tuple[dict[int, float], int, int]:
+    """Return CPU seconds, RSS bytes and process count for ACTIS + child processes."""
+    rows: dict[int, tuple[int, float, int, str]] = {}
+    ticks_per_second = float(os.sysconf("SC_CLK_TCK"))
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            pid = int(entry.name)
+            stat_tail = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            ppid = int(stat_tail[1])
+            cpu_seconds = (int(stat_tail[11]) + int(stat_tail[12])) / ticks_per_second
+            cmdline = (entry / "cmdline").read_bytes().replace(b"\x00", b" ").decode(errors="ignore").strip()
+            rss_kb = 0
+            for line in (entry / "status").read_text().splitlines():
+                if line.startswith("VmRSS:"):
+                    rss_kb = int(line.split()[1])
+                    break
+            rows[pid] = (ppid, cpu_seconds, rss_kb * 1024, cmdline)
+        except (OSError, ValueError, IndexError):
+            continue
+
+    roots = {pid for pid, row in rows.items() if "-m meuharness." in row[3]}
+    children: dict[int, list[int]] = {}
+    for pid, (ppid, *_rest) in rows.items():
+        children.setdefault(ppid, []).append(pid)
+    active = set(roots)
+    stack = list(roots)
+    while stack:
+        parent = stack.pop()
+        for child in children.get(parent, []):
+            if child not in active:
+                active.add(child)
+                stack.append(child)
+
+    cpu = {pid: rows[pid][1] for pid in active if pid in rows}
+    ram_bytes = sum(rows[pid][2] for pid in active if pid in rows)
+    return cpu, ram_bytes, len(active)
+
+
+def _actis_system_usage() -> dict[str, object]:
+    global _SYSTEM_USAGE_CPU, _SYSTEM_USAGE_AT
+    now = time.monotonic()
+    current, ram_bytes, process_count = _actis_process_snapshot()
+    with _SYSTEM_USAGE_LOCK:
+        if _SYSTEM_USAGE_AT is None:
+            cpu_percent = 0.0
+        else:
+            elapsed = max(0.001, now - _SYSTEM_USAGE_AT)
+            used = sum(max(0.0, value - _SYSTEM_USAGE_CPU.get(pid, value)) for pid, value in current.items())
+            cpu_percent = used / elapsed * 100.0 / max(1, os.cpu_count() or 1)
+        _SYSTEM_USAGE_CPU = current
+        _SYSTEM_USAGE_AT = now
+    return {
+        "cpu_percent": round(cpu_percent, 1),
+        "ram_bytes": ram_bytes,
+        "ram_mb": round(ram_bytes / (1024 * 1024), 1),
+        "processes": process_count,
+    }
+
+
+def _agent_tools_and_scopes(agent: dict) -> tuple[set[str], set[str]]:
+    skill_ids = list(agent.get("skills") or [])
+    tools = set(normalize_tool_ids([*list(agent.get("tools") or []), *tools_for_skills(skill_ids)]))
+    if "permissions" in agent:
+        scopes = set(normalize_scopes(agent.get("permissions") or []))
+    else:
+        scopes = set(scopes_for_tools(list(tools))) | set(scopes_for_skills(skill_ids))
+    return tools, scopes
+
+
+def _agent_has_whatsapp(agent: dict) -> bool:
+    return "whatsapp.local" in runtime_features_for_skills(list(agent.get("skills") or []))
+
+
+def _agent_has_logistics_erp(agent: dict) -> bool:
+    return "logistics.erp.local" in runtime_features_for_skills(list(agent.get("skills") or []))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -119,6 +230,8 @@ class Handler(BaseHTTPRequestHandler):
         raw = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -177,6 +290,46 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(raw)
             return
+        if u.path == "/assets/visual-system.css":
+            asset = INDEX.parent / "visual-system.css"
+            raw = asset.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/css; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+        if u.path in {"/assets/whatsapp-view.css", "/assets/whatsapp-view.js", "/assets/whatsapp-crm-mini.css", "/assets/whatsapp-crm-mini.js", "/assets/logistics-erp.css", "/assets/logistics-erp.js"}:
+            asset_name = u.path.rsplit("/", 1)[-1]
+            asset = INDEX.parent / asset_name
+            raw = asset.read_bytes()
+            content_type = "text/css; charset=utf-8" if asset_name.endswith(".css") else "text/javascript; charset=utf-8"
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+        if u.path.startswith("/api/artifacts/") and u.path.endswith("/download"):
+            artifact_id = u.path.split("/")[3]
+            try:
+                artifact, file_path = artifact_file(artifact_id)
+            except (FileNotFoundError, PermissionError):
+                self.send_json(404, {"error": "Arquivo não encontrado."})
+                return
+            size = file_path.stat().st_size
+            self.send_response(200)
+            self.send_header("Content-Type", str(artifact.get("mime_type") or "application/octet-stream"))
+            self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(str(artifact.get("name") or file_path.name)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with file_path.open("rb") as source:
+                while chunk := source.read(1024 * 1024):
+                    self.wfile.write(chunk)
+            return
         if u.path == "/api/models":
             try:
                 s = NineRouterSettings.from_env(self.env_file)
@@ -197,10 +350,16 @@ class Handler(BaseHTTPRequestHandler):
                         latest[model] = run
                 health = {m: {"model": m, "status": "unknown", "source": "catalog"} for m in models}
                 for model, run in latest.items():
-                    if model in health:
-                        health[model]["status"] = (
-                            "working" if run.get("status") == "completed" else "failing"
-                        )
+                    if model not in health:
+                        continue
+                    run_status = str(run.get("status") or "")
+                    if run_status in {"completed", "planned", "blocked"}:
+                        # These states require a valid model response. Planned/blocked describe
+                        # execution semantics, not provider health.
+                        health[model]["status"] = "working"
+                        health[model]["source"] = "last_run"
+                    elif run_status == "failed":
+                        health[model]["status"] = "failing"
                         health[model]["source"] = "last_run"
 
                 provider_payload = self.router_dashboard_json("/api/providers") or {}
@@ -268,19 +427,132 @@ class Handler(BaseHTTPRequestHandler):
                 )
             self.send_json(200, {"connections": connections})
             return
+        if u.path == "/api/connectors":
+            self.send_json(200, {"connectors": list_connectors()})
+            return
         if u.path == "/api/tools":
             self.send_json(200, {"tools": list_tool_catalog()})
+            return
+        if u.path == "/api/skills":
+            self.send_json(200, {"skills": list_skill_catalog()})
             return
         if u.path == "/api/agents":
             self.send_json(200, {"agents": list_agents()})
             return
+        if u.path == "/api/channels":
+            self.send_json(200, {"channels": list_channels()})
+            return
+        if u.path.startswith("/api/channels/") and u.path.endswith("/messages"):
+            channel_id = u.path.split("/")[3]
+            channel = get_channel(channel_id)
+            if not channel:
+                self.send_json(404, {"error": "Canal não encontrado."})
+                return
+            self.send_json(200, {"channel": channel, "messages": list_channel_messages(channel_id)})
+            return
+        if u.path.startswith("/api/channels/"):
+            channel_id = u.path.split("/")[3]
+            channel = get_channel(channel_id)
+            if not channel:
+                self.send_json(404, {"error": "Canal não encontrado."})
+                return
+            self.send_json(200, {"channel": channel})
+            return
+        if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/messages"):
+            agent_id = u.path.split("/")[3]
+            agent = get_agent(agent_id)
+            if not agent:
+                self.send_json(404, {"error": "Agente não encontrado."})
+                return
+            if not _agent_has_whatsapp(agent):
+                self.send_json(404, {"error": "Skill WhatsApp não está habilitada neste agente."})
+                return
+            query = parse_qs(u.query)
+            contact = str((query.get("contact") or [""])[0]).strip() or None
+            try:
+                limit = max(1, min(int((query.get("limit") or ["200"])[0]), 200))
+            except (TypeError, ValueError):
+                limit = 200
+            from meuharness.domains.whatsapp_shadow import get_conversation_by_contact, recent_messages
+
+            messages = list(reversed(recent_messages(agent_id, contact_name=contact, limit=limit)))
+            conversation = get_conversation_by_contact(agent_id, contact) if contact else None
+            self.send_json(200, {
+                "agent_id": agent_id,
+                "contact": contact,
+                "conversation": conversation,
+                "messages": messages,
+                "count": len(messages),
+            })
+            return
+        if u.path.startswith("/api/agents/") and u.path.endswith("/logistics/erp"):
+            agent_id = u.path.split("/")[3]
+            agent = get_agent(agent_id)
+            if not agent or not _agent_has_logistics_erp(agent):
+                self.send_json(404, {"error": "ERP logístico não está habilitado neste agente."})
+                return
+            from meuharness.domains.logistics_erp import board_snapshot
+            self.send_json(200, {"board": board_snapshot(agent_id)})
+            return
+        if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/crm"):
+            agent_id = u.path.split("/")[3]
+            agent = get_agent(agent_id)
+            if not agent or not _agent_has_whatsapp(agent):
+                self.send_json(404, {"error": "Agente WhatsApp não encontrado."})
+                return
+            query = parse_qs(u.query)
+            contact = str((query.get("contact") or [""])[0]).strip()
+            from meuharness.domains.whatsapp_crm import crm_inbox, crm_snapshot
+
+            payload = {"agent_id": agent_id, "inbox": crm_inbox(agent_id, limit=30)}
+            if contact:
+                payload["snapshot"] = crm_snapshot(agent_id, contact)
+            self.send_json(200, payload)
+            return
+        if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp"):
+            agent_id = u.path.split("/")[3]
+            agent = get_agent(agent_id)
+            if not agent:
+                self.send_json(404, {"error": "Agente não encontrado."})
+                return
+            if not _agent_has_whatsapp(agent):
+                self.send_json(404, {"error": "Skill WhatsApp não está habilitada neste agente."})
+                return
+            from meuharness.domains.whatsapp_shadow import (
+                list_inbox,
+                list_monitored_contacts,
+                pending_outbox,
+                runtime_settings,
+                sync_state_for_contact,
+            )
+            from meuharness.domains.whatsapp_sync import discover_sidebar_contacts
+            from meuharness.domains.whatsapp_automation import list_jobs
+
+            monitored = list_monitored_contacts(agent_id)
+            continuity = {
+                row["name"]: sync_state_for_contact(agent_id, row["name"])
+                for row in monitored
+            }
+            self.send_json(200, {
+                "runtime": runtime_settings(agent_id),
+                "monitored": monitored,
+                "continuity": continuity,
+                "available": discover_sidebar_contacts(agent_id, limit=100),
+                "inbox": list_inbox(agent_id, limit=200),
+                "outbox": pending_outbox(agent_id, limit=20),
+                "inbound_jobs": list_jobs(agent_id),
+            })
+            return
         if u.path.startswith("/api/agents/") and u.path.endswith("/browser"):
             agent_id = u.path.split("/")[3]
             agent = get_agent(agent_id)
-            if not agent or "harness_browser" not in set(agent.get("tools") or []):
+            if not agent:
+                self.send_json(404, {"error": "Agente não encontrado."})
+                return
+            tools, scopes = _agent_tools_and_scopes(agent)
+            if "harness_browser" not in tools:
                 self.send_json(404, {"error": "Harness Browser não está habilitado neste agente."})
                 return
-            scopes = set(normalize_scopes(agent.get("permissions") or [])) if "permissions" in agent else set(scopes_for_tools(agent.get("tools") or []))
             if not ({"browser.read", "browser.interact"} & scopes):
                 self.send_json(403, {"error": "Agente sem permissão browser.read."})
                 return
@@ -288,6 +560,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/companies":
             self.send_json(200, {"companies": list_companies()})
+            return
+        if u.path == "/api/company-tasks":
+            q = parse_qs(u.query)
+            company_id = str((q.get("company_id") or [""])[0]).strip()
+            if not company_id:
+                self.send_json(400, {"error": "company_id é obrigatório."})
+                return
+            status = str((q.get("status") or [""])[0]).strip()
+            kind = str((q.get("kind") or [""])[0]).strip()
+            limit = int((q.get("limit") or ["100"])[0])
+            self.send_json(200, {"tasks": list_company_tasks(company_id, status=status, kind=kind, limit=limit)})
             return
         if u.path == "/api/sectors":
             q = parse_qs(u.query)
@@ -362,16 +645,24 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/storage":
             self.send_json(200, {"backend": "sqlite", "path": str(DB_FILE), "exists": DB_FILE.is_file()})
             return
+        if u.path == "/api/system-usage":
+            self.send_json(200, _actis_system_usage())
+            return
         if u.path == "/api/runs":
             q = parse_qs(u.query)
             aid = (q.get("agent_id") or [None])[0]
             self.send_json(200, {"runs": list_runs(aid)})
             return
+        if u.path.startswith("/api/runs/") and u.path.endswith("/checkpoints"):
+            run_id = u.path.split("/")[3]
+            self.send_json(200, {"run_id": run_id, "checkpoints": list_checkpoints(run_id)})
+            return
         if u.path == "/api/tasks":
             q = parse_qs(u.query)
             active_only = str((q.get("active") or ["0"])[0]).lower() in {"1", "true", "yes"}
             limit = int((q.get("limit") or ["200"])[0])
-            self.send_json(200, {"tasks": list_tasks(active_only=active_only, limit=limit)})
+            agent_id = str((q.get("agent_id") or [""])[0]).strip() or None
+            self.send_json(200, {"tasks": list_tasks(agent_id=agent_id, active_only=active_only, limit=limit)})
             return
         if u.path == "/api/world/stream":
             self.send_response(200)
@@ -414,6 +705,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         u = urlparse(self.path)
         try:
+            if u.path.startswith("/api/runs/") and u.path.endswith("/resume"):
+                run_id = u.path.split("/")[3]
+                result = asyncio.run(resume_run(run_id, env_file=self.env_file))
+                self.send_json(200, {"ok": True, "run_id": result.run_id, "resumed_from": run_id, "text": result.text, "model": result.model})
+                return
             if u.path.startswith("/api/runs/") and u.path.endswith("/cancel"):
                 run_id = u.path.split("/")[3]
                 signalled = cancel_active_run(run_id)
@@ -423,6 +719,13 @@ class Handler(BaseHTTPRequestHandler):
                         self.send_json(404, {"error": "Run ativa não encontrada."})
                         return
                 self.send_json(200, {"ok": True, "run_id": run_id, "signalled": signalled})
+                return
+            if u.path == "/api/connectors":
+                self.send_json(201, {"connector": save_connector(self.read_json())})
+                return
+            if u.path.startswith("/api/connectors/") and u.path.endswith("/test"):
+                connector_id = u.path.split("/")[3]
+                self.send_json(200, {"result": test_connector(connector_id, self.env_file)})
                 return
             if u.path == "/api/provider-connections/test":
                 result = self.router_dashboard_post("/api/providers/test-batch", {"mode": "all"})
@@ -473,16 +776,147 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/automations":
                 self.send_json(201, {"automation": create_automation(self.read_json())})
                 return
+            if u.path == "/api/channels":
+                self.send_json(201, {"channel": create_channel(self.read_json())})
+                return
+            if u.path.startswith("/api/channels/") and u.path.endswith("/members"):
+                channel_id = u.path.split("/")[3]
+                data = self.read_json()
+                members = set_channel_members(channel_id, list(data.get("members") or []))
+                self.send_json(200, {"members": members, "channel": get_channel(channel_id)})
+                return
+            if u.path.startswith("/api/channels/") and u.path.endswith("/messages"):
+                channel_id = u.path.split("/")[3]
+                self.send_json(201, {"message": create_channel_message(channel_id, self.read_json())})
+                return
+            if u.path.startswith("/api/channels/") and u.path.endswith("/invoke"):
+                channel_id = u.path.split("/")[3]
+                data = self.read_json()
+                agent_id = str(data.get("agent_id") or "").strip()
+                content = str(data.get("content") or "").strip()
+                agent = get_agent(agent_id)
+                if not agent or not content:
+                    raise ValueError("Agente e mensagem são obrigatórios.")
+                create_channel_message(channel_id, {"content": content, "author_name": "Você"})
+                prior = list_channel_messages(channel_id, limit=18)[:-1]
+                history = [
+                    {"role": "assistant" if item.get("author_type") == "agent" and item.get("author_id") == agent_id else "user",
+                     "content": f"{item.get('author_name')}: {item.get('content')}"}
+                    for item in prior[-15:]
+                ]
+                result = asyncio.run(execute_agent(agent_id, content, history=history, source="direct", env_file=self.env_file))
+                reply = create_channel_message(channel_id, {
+                    "content": result.text, "author_type": "agent", "author_id": agent_id,
+                    "author_name": str(agent.get("name") or agent_id), "kind": "message",
+                })
+                self.send_json(200, {"message": reply, "run_id": result.run_id, "model": result.model})
+                return
             if u.path == "/api/agents":
                 self.send_json(201, {"agent": create_agent(self.read_json())})
+                return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/logistics/erp"):
+                agent_id = u.path.split("/")[3]
+                agent = get_agent(agent_id)
+                if not agent or not _agent_has_logistics_erp(agent):
+                    self.send_json(404, {"error": "ERP logístico não está habilitado neste agente."})
+                    return
+                data = self.read_json()
+                action = str(data.get("action") or "").strip().lower()
+                from meuharness.domains.logistics_erp import (
+                    add_pending, board_snapshot, create_order, delete_order, set_pending, update_order,
+                )
+                if action == "create":
+                    result = create_order(agent_id, data)
+                elif action == "update":
+                    result = update_order(agent_id, str(data.get("order_id") or ""), data)
+                elif action == "delete":
+                    result = delete_order(agent_id, str(data.get("order_id") or ""))
+                elif action == "add_pending":
+                    result = add_pending(agent_id, str(data.get("order_id") or ""), str(data.get("title") or ""), str(data.get("due_date") or ""))
+                elif action == "set_pending":
+                    result = set_pending(agent_id, str(data.get("order_id") or ""), str(data.get("pending_id") or ""), str(data.get("status") or "done"))
+                else:
+                    raise ValueError("Ação inválida para o ERP logístico")
+                self.send_json(200, {"result": result, "board": board_snapshot(agent_id)})
+                return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/contacts"):
+                agent_id = u.path.split("/")[3]
+                agent = get_agent(agent_id)
+                if not agent or not _agent_has_whatsapp(agent):
+                    self.send_json(404, {"error": "Agente WhatsApp não encontrado."})
+                    return
+                from meuharness.domains.whatsapp_shadow import upsert_contact
+
+                data = self.read_json()
+                contact = str(data.get("contact") or "").strip()
+                if not contact:
+                    raise ValueError("Contato é obrigatório.")
+                row = upsert_contact(
+                    agent_id,
+                    contact,
+                    external_id=str(data.get("phone") or "").strip() or None,
+                    monitored=bool(data.get("enabled", True)),
+                    sync_history=bool(data.get("sync_history", False)),
+                )
+                self.send_json(200, {"contact": row})
+                return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/crm"):
+                agent_id = u.path.split("/")[3]
+                agent = get_agent(agent_id)
+                if not agent or not _agent_has_whatsapp(agent):
+                    self.send_json(404, {"error": "Agente WhatsApp não encontrado."})
+                    return
+                data = self.read_json()
+                contact = str(data.get("contact") or "").strip()
+                if not contact:
+                    raise ValueError("Contato é obrigatório.")
+                action = str(data.get("action") or "update").strip().lower()
+                from meuharness.domains.whatsapp_crm import add_item, triage_conversation, update_crm
+
+                if action == "triage":
+                    result = triage_conversation(agent_id, contact, env_file=self.env_file)
+                elif action in {"task", "pending", "order"}:
+                    result = add_item(agent_id, contact, action, data)
+                else:
+                    result = update_crm(agent_id, contact, data)
+                self.send_json(200, result)
+                return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/sync"):
+                agent_id = u.path.split("/")[3]
+                agent = get_agent(agent_id)
+                if not agent or not _agent_has_whatsapp(agent):
+                    self.send_json(404, {"error": "Agente WhatsApp não encontrado."})
+                    return
+                from meuharness.domains.whatsapp_sync import sync_once
+
+                data = self.read_json()
+                contact = str(data.get("contact") or "").strip() or None
+                emit_inbound_events = bool(data.get("emit_inbound_events", False))
+                self.send_json(200, {"sync": sync_once(
+                    agent_id, contact_name=contact, emit_inbound_events=emit_inbound_events,
+                )})
+                return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/automation"):
+                agent_id = u.path.split("/")[3]
+                agent = get_agent(agent_id)
+                if not agent or not _agent_has_whatsapp(agent):
+                    self.send_json(404, {"error": "Agente WhatsApp não encontrado."})
+                    return
+                from meuharness.domains.whatsapp_shadow import set_automation_enabled
+
+                data = self.read_json()
+                self.send_json(200, {"runtime": set_automation_enabled(agent_id, bool(data.get("enabled")))})
                 return
             if u.path.startswith("/api/agents/") and u.path.endswith("/browser/action"):
                 agent_id = u.path.split("/")[3]
                 agent = get_agent(agent_id)
-                if not agent or "harness_browser" not in set(agent.get("tools") or []):
+                if not agent:
+                    self.send_json(404, {"error": "Agente não encontrado."})
+                    return
+                tools, scopes = _agent_tools_and_scopes(agent)
+                if "harness_browser" not in tools:
                     self.send_json(404, {"error": "Harness Browser não está habilitado neste agente."})
                     return
-                scopes = set(normalize_scopes(agent.get("permissions") or [])) if "permissions" in agent else set(scopes_for_tools(agent.get("tools") or []))
                 if "browser.interact" not in scopes:
                     self.send_json(403, {"error": "Agente sem permissão browser.interact."})
                     return
@@ -508,28 +942,17 @@ class Handler(BaseHTTPRequestHandler):
                 agent_id = str(conversation.get("agent_id") or "")
                 data = self.read_json()
                 raw_attachments = data.get("attachments") if isinstance(data.get("attachments"), list) else []
-                attachments = []
-                for item in raw_attachments[:4]:
-                    if not isinstance(item, dict):
-                        continue
-                    media_type = str(item.get("media_type") or "").strip().lower()
-                    data_url = str(item.get("data_url") or "").strip()
-                    name = str(item.get("name") or "imagem").strip()[:120]
-                    if not media_type.startswith("image/") or not data_url.startswith("data:image/"):
-                        continue
-                    if len(data_url) > 8_500_000:
-                        raise ValueError("Imagem muito grande. Limite: 6 MB por imagem.")
-                    attachments.append({"name": name, "media_type": media_type, "data_url": data_url})
+                attachments = normalize_chat_attachments(raw_attachments, conversation_id)
                 prompt = str(data.get("content") or "").strip()
                 if not prompt and attachments:
-                    prompt = "Analise a imagem anexada."
+                    prompt = "Analise os arquivos anexados."
                 if not prompt:
                     raise ValueError("Mensagem vazia.")
                 source = str(data.get("source") or "user").strip().lower()
                 if source not in {"user", "direct"}:
                     source = "user"
                 previous_messages = [
-                    {"role": m.get("role"), "content": m.get("content")}
+                    {"role": m.get("role"), "content": history_content_with_attachment_refs(m)}
                     for m in list(conversation.get("messages") or [])
                     if m.get("role") in {"user", "assistant"} and m.get("status") != "error"
                 ][-16:]
@@ -548,8 +971,10 @@ class Handler(BaseHTTPRequestHandler):
                             env_file=self.env_file,
                         )
                     )
+                    artifact_attachments = list_run_attachments(result.run_id)
                     assistant_message = append_conversation_message(
-                        conversation_id, "assistant", result.text, run_id=result.run_id
+                        conversation_id, "assistant", result.text, run_id=result.run_id,
+                        attachments=artifact_attachments,
                     )
                     self.send_json(
                         200,
@@ -560,6 +985,7 @@ class Handler(BaseHTTPRequestHandler):
                             "run_id": result.run_id,
                             "user_message": user_message,
                             "assistant_message": assistant_message,
+                            "artifacts": artifact_attachments,
                             "conversation": get_conversation(conversation_id),
                         },
                     )
@@ -611,6 +1037,7 @@ class Handler(BaseHTTPRequestHandler):
                             "model": result.model,
                             "elapsed_ms": result.elapsed_ms,
                             "run_id": result.run_id,
+                            "artifacts": list_run_attachments(result.run_id),
                         },
                     )
                     return
@@ -626,10 +1053,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:
         u = urlparse(self.path)
         try:
+            if u.path.startswith("/api/channel-messages/"):
+                message_id = u.path.split("/")[3]
+                message = update_channel_message(message_id, self.read_json())
+                if not message:
+                    self.send_json(404, {"error": "Mensagem não encontrada ou sem alterações."})
+                    return
+                self.send_json(200, {"message": message})
+                return
             if u.path.startswith("/api/agent-context-bindings/"):
                 agent_id = u.path.split("/")[3]
                 data = self.read_json()
                 self.send_json(200, {"bindings": set_agent_project_bindings(agent_id, list(data.get("project_ids") or []))})
+                return
+            if u.path.startswith("/api/connectors/"):
+                connector_id = u.path.split("/")[3]
+                data = self.read_json()
+                data["id"] = connector_id
+                self.send_json(200, {"connector": save_connector(data)})
                 return
             if u.path.startswith("/api/workflows/"):
                 workflow_id = u.path.split("/")[3]
@@ -661,6 +1102,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         u = urlparse(self.path)
         try:
+            if u.path.startswith("/api/channel-messages/"):
+                message_id = u.path.split("/")[3]
+                if not delete_channel_message(message_id):
+                    self.send_json(404, {"error": "Mensagem não encontrada."})
+                    return
+                self.send_json(200, {"ok": True})
+                return
+            if u.path.startswith("/api/channels/"):
+                channel_id = u.path.split("/")[3]
+                if not delete_channel(channel_id):
+                    self.send_json(400, {"error": "Canal não encontrado ou protegido."})
+                    return
+                self.send_json(200, {"ok": True})
+                return
+            if u.path.startswith("/api/connectors/"):
+                connector_id = u.path.split("/")[3]
+                if not delete_connector(connector_id):
+                    self.send_json(400, {"error": "Connector não encontrado ou protegido."})
+                    return
+                self.send_json(200, {"ok": True})
+                return
             if u.path.startswith("/api/context-items/"):
                 item_id = u.path.split("/")[3]
                 if not delete_context_item(item_id):
@@ -696,7 +1158,8 @@ def main() -> None:
     parser.add_argument("--embedded-scheduler", action="store_true", help="Run scheduler inside web process (legacy/dev mode).")
     args = parser.parse_args()
     Handler.env_file = args.env_file
-    cancel_stale_running_runs()
+    interrupt_stale_running_runs()
+    reconcile_tasks_with_runs()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     url = f"http://{args.host}:{args.port}"
     print(f"ACTIS GEN: {url}", flush=True)

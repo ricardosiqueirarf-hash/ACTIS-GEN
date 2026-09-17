@@ -68,9 +68,10 @@ class MAFRuntime:
                         if uri:
                             contents.append(Content.from_uri(uri=uri, media_type=media_type))
                     run_input = Message("user", contents)
-                response = await agent.run(
-                    run_input, options={"max_tokens": request.max_output_tokens}
-                )
+                run_options: dict[str, object] = {"max_tokens": request.max_output_tokens}
+                if request.tool_choice is not None:
+                    run_options["tool_choice"] = request.tool_choice
+                response = await agent.run(run_input, options=run_options)
                 usage = response.usage_details or {}
                 return RuntimeResult(
                     text=response.text,

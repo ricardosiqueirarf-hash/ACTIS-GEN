@@ -42,6 +42,12 @@ from meuharness.android_execution import (
 )
 from meuharness.android_workflows import run_workflow_android
 from meuharness.approvals import list_approvals, request_approval, resolve_approval, revoke_approval
+from meuharness.channels import (
+    create_channel, create_channel_message, delete_channel, delete_channel_message,
+    get_channel, list_channel_messages, list_channels, set_channel_members, update_channel_message,
+)
+from meuharness.company_bus import list_company_tasks
+from meuharness.skills import list_skill_catalog, runtime_features_for_skills
 from meuharness.automations import create_automation, delete_automation, get_automation, list_automations, update_automation
 from meuharness.contexts import (
     create_context_item,
@@ -54,7 +60,7 @@ from meuharness.contexts import (
 )
 from meuharness.event_bus import list_events
 from meuharness.memory import recall
-from meuharness.storage import DB_FILE
+from meuharness.storage import DB_FILE, load_collection, save_collection
 from meuharness.tasks import list_tasks
 from meuharness.tool_registry import list_tool_catalog
 from meuharness.workflows import delete_workflow, get_workflow, list_workflow_runs, list_workflows, save_workflow, validate_workflow
@@ -63,6 +69,30 @@ INDEX = Path(__file__).with_name("web_assets") / "index.html"
 _GLOBAL_CHAT_BUSY_LOCK = threading.Lock()
 _GLOBAL_CHAT_BUSY_AGENTS: set[str] = set()
 
+
+def _runtime_features(agent):
+    return set(runtime_features_for_skills(list(agent.get("skills") or [])))
+
+def _android_system_usage():
+    ram=0
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                ram=int(line.split()[1])*1024
+                break
+    except Exception:
+        pass
+    return {"cpu_percent":0.0,"ram_bytes":ram,"ram_mb":round(ram/1048576,1),"processes":1,"runtime":"android-embedded"}
+
+def _save_connector_local(data):
+    items=load_collection("connectors")
+    cid=str(data.get("id") or "").strip() or f"connector-{int(time.time()*1000)}"
+    row={**data,"id":cid,"name":str(data.get("name") or cid).strip(),"enabled":bool(data.get("enabled",True))}
+    old=next((x for x in items if x.get("id")==cid),None)
+    if old: items[items.index(old)]=row
+    else: items.append(row)
+    save_collection("connectors",items)
+    return row
 
 class AndroidHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
@@ -137,6 +167,18 @@ class AndroidHandler(BaseHTTPRequestHandler):
                 cfg = provider_status()
                 self.send_json(200, {"connections": ([{"id": "android-provider", "provider": "openai-compatible", "name": cfg.get("base_url") or "Android provider", "auth_type": "api_key", "active": bool(cfg.get("configured")), "test_status": "active" if cfg.get("configured") else "unavailable", "last_error": None}] if cfg.get("configured") else [])})
                 return
+            if u.path == "/api/connectors":
+                self.send_json(200,{"connectors":load_collection("connectors")}); return
+            if u.path == "/api/skills":
+                self.send_json(200,{"skills":list_skill_catalog()}); return
+            if u.path == "/api/channels":
+                self.send_json(200,{"channels":list_channels()}); return
+            if u.path.startswith("/api/channels/") and u.path.endswith("/messages"):
+                cid=u.path.split("/")[3]; channel=get_channel(cid)
+                self.send_json(200 if channel else 404,{"channel":channel,"messages":list_channel_messages(cid) if channel else []}); return
+            if u.path.startswith("/api/channels/"):
+                channel=get_channel(u.path.split("/")[3])
+                self.send_json(200 if channel else 404,{"channel":channel} if channel else {"error":"Canal não encontrado."}); return
             if u.path == "/api/tools":
                 tools = []
                 for item in list_tool_catalog():
@@ -149,12 +191,36 @@ class AndroidHandler(BaseHTTPRequestHandler):
             if u.path == "/api/agents":
                 self.send_json(200, {"agents": list_agents()})
                 return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/logistics/erp"):
+                aid=u.path.split("/")[3]; agent=get_agent(aid)
+                if not agent or "logistics.erp.local" not in _runtime_features(agent): self.send_json(404,{"error":"ERP logístico não está habilitado neste agente."}); return
+                from meuharness.domains.logistics_erp import board_snapshot
+                self.send_json(200,{"board":board_snapshot(aid)}); return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/messages"):
+                aid=u.path.split("/")[3]; agent=get_agent(aid)
+                if not agent or "whatsapp.local" not in _runtime_features(agent): self.send_json(404,{"error":"Agente WhatsApp não encontrado."}); return
+                q=parse_qs(u.query); contact=str((q.get("contact") or [""])[0]).strip() or None
+                from meuharness.domains.whatsapp_shadow import get_conversation_by_contact, recent_messages
+                msgs=list(reversed(recent_messages(aid,contact_name=contact,limit=200)))
+                self.send_json(200,{"agent_id":aid,"contact":contact,"conversation":get_conversation_by_contact(aid,contact) if contact else None,"messages":msgs,"count":len(msgs)}); return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/crm"):
+                aid=u.path.split("/")[3]; q=parse_qs(u.query); contact=str((q.get("contact") or [""])[0]).strip()
+                from meuharness.domains.whatsapp_crm import crm_inbox, crm_snapshot
+                payload={"agent_id":aid,"inbox":crm_inbox(aid,limit=30)}
+                if contact: payload["snapshot"]=crm_snapshot(aid,contact)
+                self.send_json(200,payload); return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp"):
+                self.send_json(501,{"error":"WhatsApp transport permanece desktop-only no Core Android."}); return
             if u.path.startswith("/api/agents/") and u.path.endswith("/browser"):
                 self.send_json(501, {"error": "Harness Browser desktop não está disponível no Core Android embutido."})
                 return
             if u.path == "/api/companies":
                 self.send_json(200, {"companies": list_companies()})
                 return
+            if u.path == "/api/company-tasks":
+                q=parse_qs(u.query); company_id=str((q.get("company_id") or [""])[0]).strip()
+                if not company_id: self.send_json(400,{"error":"company_id é obrigatório."}); return
+                self.send_json(200,{"tasks":list_company_tasks(company_id,status=str((q.get("status") or [""])[0]),kind=str((q.get("kind") or [""])[0]),limit=int((q.get("limit") or ["100"])[0]))}); return
             if u.path == "/api/sectors":
                 q = parse_qs(u.query)
                 self.send_json(200, {"sectors": list_sectors((q.get("company_id") or [None])[0])})
@@ -218,6 +284,8 @@ class AndroidHandler(BaseHTTPRequestHandler):
             if u.path == "/api/storage":
                 self.send_json(200, {"backend": "sqlite", "path": str(DB_FILE), "exists": DB_FILE.is_file(), "runtime": "android-embedded"})
                 return
+            if u.path == "/api/system-usage":
+                self.send_json(200,_android_system_usage()); return
             if u.path == "/api/runs":
                 q = parse_qs(u.query)
                 self.send_json(200, {"runs": list_runs((q.get("agent_id") or [None])[0])})
@@ -293,6 +361,10 @@ class AndroidHandler(BaseHTTPRequestHandler):
             if u.path == "/api/provider-connections/test":
                 self.send_json(200, {"ok": bool(provider_status().get("configured")), "source": "android_embedded_provider", "provider": provider_status()})
                 return
+            if u.path == "/api/connectors":
+                self.send_json(201,{"connector":_save_connector_local(self.read_json())}); return
+            if u.path.startswith("/api/connectors/") and u.path.endswith("/test"):
+                self.send_json(200,{"result":{"ok":False,"status":"android_limited","connector_id":u.path.split("/")[3],"detail":"Teste avançado permanece no Core desktop."}}); return
             if u.path == "/api/approvals":
                 data = self.read_json()
                 self.send_json(201, {"approval": request_approval(str(data.get("agent_id") or ""), str(data.get("scope") or ""), str(data.get("reason") or ""))})
@@ -318,12 +390,46 @@ class AndroidHandler(BaseHTTPRequestHandler):
                     raise ValueError("Workflow não encontrado.")
                 self.send_json(200, {"errors": validate_workflow(workflow)})
                 return
+            if u.path == "/api/channels":
+                self.send_json(201,{"channel":create_channel(self.read_json())}); return
+            if u.path.startswith("/api/channels/") and u.path.endswith("/members"):
+                cid=u.path.split("/")[3]; data=self.read_json(); members=set_channel_members(cid,list(data.get("members") or []))
+                self.send_json(200,{"members":members,"channel":get_channel(cid)}); return
+            if u.path.startswith("/api/channels/") and u.path.endswith("/messages"):
+                cid=u.path.split("/")[3]; self.send_json(201,{"message":create_channel_message(cid,self.read_json())}); return
+            if u.path.startswith("/api/channels/") and u.path.endswith("/invoke"):
+                cid=u.path.split("/")[3]; data=self.read_json(); aid=str(data.get("agent_id") or "").strip(); content=str(data.get("content") or "").strip(); agent=get_agent(aid)
+                if not agent or not content: raise ValueError("Agente e mensagem são obrigatórios.")
+                create_channel_message(cid,{"content":content,"author_name":"Você"})
+                result=asyncio.run(execute_agent_android(aid,content,source="direct"))
+                reply=create_channel_message(cid,{"content":result.text,"author_type":"agent","author_id":aid,"author_name":str(agent.get("name") or aid),"kind":"message"})
+                self.send_json(200,{"message":reply,"run_id":result.run_id,"model":result.model}); return
             if u.path == "/api/automations":
                 self.send_json(201, {"automation": create_automation(self.read_json())})
                 return
             if u.path == "/api/agents":
                 self.send_json(201, {"agent": create_agent(self.read_json())})
                 return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/logistics/erp"):
+                aid=u.path.split("/")[3]; data=self.read_json(); action=str(data.get("action") or "").strip().lower()
+                from meuharness.domains.logistics_erp import add_pending, board_snapshot, create_order, delete_order, set_pending, update_order
+                if action=="create": result=create_order(aid,data)
+                elif action=="update": result=update_order(aid,str(data.get("order_id") or ""),data)
+                elif action=="delete": result=delete_order(aid,str(data.get("order_id") or ""))
+                elif action=="add_pending": result=add_pending(aid,str(data.get("order_id") or ""),str(data.get("title") or ""),str(data.get("due_date") or ""))
+                elif action=="set_pending": result=set_pending(aid,str(data.get("order_id") or ""),str(data.get("pending_id") or ""),str(data.get("status") or "done"))
+                else: raise ValueError("Ação inválida para o ERP logístico")
+                self.send_json(200,{"result":result,"board":board_snapshot(aid)}); return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/crm"):
+                aid=u.path.split("/")[3]; data=self.read_json(); contact=str(data.get("contact") or "").strip(); action=str(data.get("action") or "update").strip().lower()
+                if not contact: raise ValueError("Contato é obrigatório.")
+                from meuharness.domains.whatsapp_crm import add_item, update_crm
+                if action in {"task","pending","order"}: result=add_item(aid,contact,action,data)
+                elif action=="triage": self.send_json(501,{"error":"Triage WhatsApp exige o runtime desktop."}); return
+                else: result=update_crm(aid,contact,data)
+                self.send_json(200,result); return
+            if u.path.startswith("/api/agents/") and u.path.endswith("/whatsapp/sync"):
+                self.send_json(501,{"error":"Sincronização WhatsApp exige o transport desktop."}); return
             if u.path.startswith("/api/agents/") and u.path.endswith("/browser/action"):
                 self.send_json(501, {"error": "Harness Browser desktop não está disponível no Core Android embutido."})
                 return
@@ -396,6 +502,12 @@ class AndroidHandler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:
         u = urlparse(self.path)
         try:
+            if u.path.startswith("/api/channel-messages/"):
+                mid=u.path.split("/")[3]; message=update_channel_message(mid,self.read_json())
+                self.send_json(200 if message else 404,{"message":message} if message else {"error":"Mensagem não encontrada."}); return
+            if u.path.startswith("/api/connectors/"):
+                data=self.read_json(); data["id"]=u.path.split("/")[3]
+                self.send_json(200,{"connector":_save_connector_local(data)}); return
             if u.path.startswith("/api/agent-context-bindings/"):
                 data = self.read_json()
                 self.send_json(200, {"bindings": set_agent_project_bindings(u.path.split("/")[3], list(data.get("project_ids") or []))})
@@ -422,6 +534,14 @@ class AndroidHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         u = urlparse(self.path)
         try:
+            if u.path.startswith("/api/channel-messages/"):
+                ok=delete_channel_message(u.path.split("/")[3]); self.send_json(200 if ok else 404,{"ok":bool(ok)}); return
+            if u.path.startswith("/api/channels/"):
+                ok=delete_channel(u.path.split("/")[3]); self.send_json(200 if ok else 400,{"ok":bool(ok)}); return
+            if u.path.startswith("/api/connectors/"):
+                cid=u.path.split("/")[3]; items=load_collection("connectors"); old=next((x for x in items if x.get("id")==cid),None)
+                if not old or old.get("builtin"): self.send_json(400,{"ok":False,"error":"Connector protegido ou inexistente."}); return
+                save_collection("connectors",[x for x in items if x.get("id")!=cid]); self.send_json(200,{"ok":True}); return
             if u.path.startswith("/api/context-items/"):
                 ok = delete_context_item(u.path.split("/")[3])
                 self.send_json(200 if ok else 404, {"ok": bool(ok)})

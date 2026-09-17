@@ -21,45 +21,6 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
-def _ensure_memory_search(conn: sqlite3.Connection) -> bool:
-    """Create the memory search index and return whether FTS5 is available.
-
-    Desktop Python normally ships FTS5. Some Android Python runtimes don't. In
-    that case ACTIS keeps the same table shape in a normal SQLite table and the
-    memory layer falls back to LIKE matching instead of failing Core startup.
-    """
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE name='memories_fts' LIMIT 1"
-    ).fetchone()
-    if row:
-        sql = str(row["sql"] or "").upper()
-        return "VIRTUAL TABLE" in sql and "FTS5" in sql
-    try:
-        conn.execute(
-            "CREATE VIRTUAL TABLE memories_fts USING fts5(id UNINDEXED, agent_id UNINDEXED, content)"
-        )
-        return True
-    except sqlite3.OperationalError:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS memories_fts (
-                id TEXT PRIMARY KEY,
-                agent_id TEXT NOT NULL,
-                content TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_memories_fts_agent
-            ON memories_fts(agent_id);
-            """
-        )
-        return False
-
-
-def memory_search_uses_fts5() -> bool:
-    init_db()
-    with _LOCK, connect() as conn:
-        return _ensure_memory_search(conn)
-
-
 def init_db() -> None:
     with _LOCK, connect() as conn:
         conn.executescript("""
@@ -89,6 +50,9 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_memories_agent_created
         ON memories(agent_id, created_at DESC);
+        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+            id UNINDEXED, agent_id UNINDEXED, content
+        );
         CREATE TABLE IF NOT EXISTS approvals (
             id TEXT PRIMARY KEY,
             agent_id TEXT NOT NULL,
@@ -120,7 +84,6 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_started
         ON workflow_runs(workflow_id, started_at DESC);
         """)
-        _ensure_memory_search(conn)
 
 
 def load_collection(name: str) -> list[dict[str, Any]]:
@@ -149,6 +112,38 @@ def save_collection(name: str, items: list[dict[str, Any]]) -> None:
                 for index, item in enumerate(items)
             ],
         )
+
+
+def mutate_collection(name: str, mutator) -> Any:
+    """Atomically read, mutate and rewrite one collection.
+
+    The BEGIN IMMEDIATE transaction prevents concurrent read-modify-write callers
+    from overwriting each other's updates, including callers in other processes.
+    The mutator receives the current list and may change it in place.
+    """
+    init_db()
+    with _LOCK, connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT payload FROM collections WHERE name=? ORDER BY position ASC",
+            (name,),
+        ).fetchall()
+        items = [json.loads(row["payload"]) for row in rows]
+        result = mutator(items)
+        conn.execute("DELETE FROM collections WHERE name=?", (name,))
+        conn.executemany(
+            "INSERT INTO collections(name,item_id,payload,position) VALUES(?,?,?,?)",
+            [
+                (
+                    name,
+                    str(item.get("id") or f"row-{index}"),
+                    json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+                    index,
+                )
+                for index, item in enumerate(items)
+            ],
+        )
+        return result
 
 
 def collection_empty(name: str) -> bool:
