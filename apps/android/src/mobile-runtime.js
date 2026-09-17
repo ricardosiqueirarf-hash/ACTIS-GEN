@@ -48,6 +48,7 @@ function ensureBootOverlay() {
       <p id="actisBootText">Preparando agentes, memória e automações no próprio celular…</p>
       <pre id="actisBootError" hidden></pre>
       <div class="actis-boot-track"><i></i></div>
+      <button id="actisBootCopy" hidden>Copiar erro</button>
       <button id="actisBootRetry" hidden>Tentar novamente</button>
     </div>`;
   document.body.appendChild(overlay);
@@ -61,6 +62,20 @@ function compactBootError(value) {
   return lines.slice(-8).join('\n').slice(-2200);
 }
 
+async function copyBootError(text, button) {
+  const value = String(text || '').trim();
+  if (!value) return;
+  try {
+    if (native) await Clipboard.write({ string: value });
+    else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+    else throw new Error('Clipboard indisponível');
+    button.textContent = 'Erro copiado';
+  } catch {
+    button.textContent = 'Falha ao copiar';
+  }
+  setTimeout(() => { button.textContent = 'Copiar erro'; }, 1800);
+}
+
 async function coreNativeStatus() {
   if (!native || !ActisCore) return { state: 'web', error: '' };
   try { return await ActisCore.status(); }
@@ -71,10 +86,12 @@ async function waitForEmbeddedCore(timeoutMs = 45000) {
   const overlay = ensureBootOverlay();
   const text = overlay.querySelector('#actisBootText');
   const errorBox = overlay.querySelector('#actisBootError');
+  const copy = overlay.querySelector('#actisBootCopy');
   const retry = overlay.querySelector('#actisBootRetry');
   overlay.classList.add('open');
   overlay.classList.remove('ready', 'failed');
   retry.hidden = true;
+  copy.hidden = true;
   errorBox.hidden = true;
   errorBox.textContent = '';
 
@@ -112,16 +129,22 @@ async function waitForEmbeddedCore(timeoutMs = 45000) {
   }
 
   const status = await coreNativeStatus();
-  const detail = compactBootError(status?.error) || lastFetchError;
+  const fullDetail = String(status?.error || lastFetchError || '').trim();
+  const detail = compactBootError(fullDetail);
   overlay.classList.add('failed');
   text.textContent = `Falha ao iniciar o Core embutido (${status?.state || 'unknown'}).`;
   if (detail) {
     errorBox.hidden = false;
     errorBox.textContent = detail;
   }
+  if (fullDetail) {
+    copy.hidden = false;
+    copy.onclick = () => copyBootError(fullDetail, copy);
+  }
   retry.hidden = false;
   retry.onclick = async () => {
     retry.hidden = true;
+    copy.hidden = true;
     if (native && ActisCore) await ActisCore.ensureStarted().catch(() => {});
     waitForEmbeddedCore(timeoutMs);
   };
