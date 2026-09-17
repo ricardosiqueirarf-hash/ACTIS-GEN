@@ -16,7 +16,7 @@ BROWSER_READ_TOOLS = (
     "browser_wait_for_element", "browser_http_get", "browser_ensure_real_tab",
 )
 BROWSER_INTERACT_TOOLS = (
-    "browser_new_tab", "browser_goto", "browser_click", "browser_type",
+    "browser_goto", "browser_click", "browser_type",
     "browser_fill", "browser_press", "browser_scroll", "browser_switch_tab",
     "browser_close_tab", "browser_js", "browser_cdp", "browser_upload_file",
     "browser_start_recording", "browser_stop_recording",
@@ -29,6 +29,9 @@ def build_harness_browser(scopes: set[str] | None = None, *, run_id: str | None 
     runtime = ensure_browser(agent_id or "shared")
     env = dict(os.environ)
     env["BU_CDP_URL"] = runtime.cdp_url
+    env["BU_NAME"] = "default"
+    env["BH_RUNTIME_DIR"] = str(Path(runtime.profile_dir) / "harness-runtime")
+    env["BH_TMP_DIR"] = str(Path(runtime.profile_dir) / "harness-tmp")
     env["ACTIS_BROWSER_PROFILE"] = runtime.profile_dir
     env["ACTIS_BROWSER_AGENT_ID"] = runtime.agent_id
     allowed = None
@@ -46,7 +49,7 @@ def build_harness_browser(scopes: set[str] | None = None, *, run_id: str | None 
         command=command,
         env=env,
         load_prompts=False,
-        request_timeout=30,
+        request_timeout=120,
         description="Navegação web real via Browser Harness/CDP.",
         approval_mode="never_require",
         allowed_tools=allowed,

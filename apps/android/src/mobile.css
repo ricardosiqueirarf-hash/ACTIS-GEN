@@ -1,0 +1,94 @@
+html.actis-mobile,html.actis-mobile body{height:100%;overflow:hidden;background:#08090b;overscroll-behavior:none}
+html.actis-mobile body{font-size:14px!important;-webkit-tap-highlight-color:transparent}
+html.actis-mobile .app,html.actis-mobile .main{height:100dvh;min-height:0}
+html.actis-mobile .main{grid-template-rows:52px minmax(0,1fr)!important}
+html.actis-mobile .top{height:52px!important;padding:0 12px!important;background:#090b0e!important}
+html.actis-mobile .top strong{font-size:14px!important}
+html.actis-mobile #connection{cursor:pointer;font-size:11px!important}
+html.actis-mobile .content{padding:14px 12px calc(86px + env(safe-area-inset-bottom))!important;overflow:auto}
+html.actis-mobile .page-heading{margin-bottom:14px!important;align-items:flex-start!important}
+html.actis-mobile .page-heading h1{font-size:21px!important}
+html.actis-mobile .page-heading p{font-size:12px!important;line-height:1.55!important}
+html.actis-mobile .page-eyebrow{font-size:10px!important}
+html.actis-mobile button{min-height:40px}
+html.actis-mobile input:not([type=checkbox]):not([type=radio]),html.actis-mobile select{min-height:42px!important;font-size:13px!important}
+html.actis-mobile textarea{font-size:14px!important;line-height:1.5!important}
+html.actis-mobile .results-count{font-size:11px!important}
+html.actis-mobile .monster-name{font-size:15px!important;min-height:auto}
+html.actis-mobile .monster-model{font-size:11px!important}
+html.actis-mobile .monster-stat,html.actis-mobile .monster-stat b{font-size:11px!important}
+html.actis-mobile .monster-stage{height:150px!important}
+html.actis-mobile .grid{grid-template-columns:1fr!important;gap:10px!important}
+html.actis-mobile .actis-mobile-nav{position:fixed;z-index:70;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(var(--actis-mobile-columns,5),1fr);padding:5px 6px calc(7px + env(safe-area-inset-bottom));background:#090b0cf4;border-top:1px solid #1b1f26;backdrop-filter:blur(16px);transition:transform .24s ease,opacity .18s ease}
+html.actis-mobile .actis-mobile-nav button{min-height:52px!important;border:0!important;background:transparent!important;color:#6f7c90!important;padding:4px!important;display:grid;place-items:center;align-content:center;gap:3px}
+html.actis-mobile .actis-mobile-nav button span{font-size:18px;line-height:1}
+html.actis-mobile .actis-mobile-nav button b{font-size:9px;letter-spacing:.02em;font-weight:600}
+html.actis-mobile .actis-mobile-nav button.active{color:#dce4ef!important}
+html.actis-mobile .actis-mobile-nav button.active span{color:#7aa2f7}
+html.actis-keyboard-open .actis-mobile-nav{transform:translateY(115%);opacity:0;pointer-events:none}
+html.actis-mobile .sidebar{top:52px!important;padding-bottom:calc(20px + env(safe-area-inset-bottom))!important}
+html.actis-mobile .sidebar .nav button{min-height:44px!important;font-size:13px!important}
+html.actis-mobile .sidebar .nav-group-label{font-size:10px!important;margin-top:14px!important}
+html.actis-mobile .world-toolbar{gap:7px!important;padding:9px!important}
+html.actis-mobile .world-metric{font-size:10px!important}
+html.actis-mobile .world-room-head,html.actis-mobile .org-world-room-head{padding:11px 10px!important}
+html.actis-mobile .world-room-head strong,html.actis-mobile .org-world-room-head>strong{font-size:12px!important}
+html.actis-mobile .world-sector,html.actis-mobile .org-world-sector{min-height:150px!important;padding:10px!important}
+html.actis-mobile .world-agent-name,html.actis-mobile .org-world-agent-name{font-size:11px!important}
+html.actis-mobile .world-agent-state,html.actis-mobile .org-world-agent-state{font-size:9px!important}
+html.actis-mobile .world-commandbar{bottom:calc(70px + env(safe-area-inset-bottom))!important;padding:9px!important}
+html.actis-keyboard-open .world-commandbar{bottom:8px!important}
+html.actis-mobile .agent-view.agent-chat-view{height:calc(100dvh - 52px - 78px - env(safe-area-inset-bottom))!important;display:block!important}
+html.actis-mobile .agent-chat-view .chat-panel{height:100%!important;min-height:0!important;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto}
+html.actis-mobile .chat-runs-panel{display:none!important}
+html.actis-mobile .chat-head{min-height:64px!important;padding:9px 10px!important;gap:8px!important}
+html.actis-mobile .chat-creature{width:58px!important;height:52px!important}
+html.actis-mobile .chat-agent-meta strong{font-size:13px!important}
+html.actis-mobile .chat-agent-meta .muted{font-size:10px!important}
+html.actis-mobile .conversation-switcher{order:3;width:100%;padding-top:4px}
+html.actis-mobile .conversation-switcher select{max-width:none!important;flex:1;font-size:11px!important}
+html.actis-mobile .chat{min-height:0!important;overflow:auto!important;padding:16px 12px 20px!important}
+html.actis-mobile .msg{margin-bottom:16px!important;max-width:100%!important}
+html.actis-mobile .who{font-size:10px!important}
+html.actis-mobile .body{font-size:14px!important;line-height:1.62!important}
+html.actis-mobile .composer{position:sticky;bottom:0;z-index:14;padding:9px!important;background:#090b0ef7!important;border-top:1px solid #242b35!important;transition:transform .26s cubic-bezier(.22,.8,.26,1),box-shadow .2s ease}
+html.actis-mobile .composer-row{align-items:end!important}
+html.actis-mobile .composer textarea{min-height:48px!important;max-height:120px!important;padding:11px!important;font-size:14px!important}
+html.actis-mobile .composer .attach-btn{min-width:42px!important;height:46px!important}
+html.actis-mobile .composer .primary{min-width:72px!important;height:46px!important}
+html.actis-keyboard-open .agent-view.agent-chat-view{height:calc(100dvh - 52px)!important}
+html.actis-keyboard-open .composer{box-shadow:0 -16px 36px #0008!important}
+html.actis-mobile .actis-mobile-setup{position:fixed;z-index:200;inset:0;display:none;align-items:flex-end;padding:14px;background:#000b;backdrop-filter:blur(7px);overflow:auto}
+html.actis-mobile .actis-mobile-setup.open{display:flex}
+html.actis-mobile .actis-mobile-setup-card{width:100%;max-height:calc(100dvh - 28px);overflow:auto;border:1px solid #2b3340;background:#0b0e12;padding:18px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -26px 70px #000c}
+html.actis-mobile .actis-mobile-setup-kicker{font-size:10px;letter-spacing:.12em;color:#7aa2f7;margin-bottom:7px}
+html.actis-mobile .actis-mobile-setup h2{font-size:20px;line-height:1.25;margin:0;color:#edf2f8}
+html.actis-mobile .actis-mobile-setup p{font-size:13px;line-height:1.55;color:#93a0b4;margin:8px 0 16px}
+html.actis-mobile .actis-mobile-setup label{display:block;font-size:12px;color:#9ba8ba;margin:12px 0 6px}
+html.actis-mobile .actis-mobile-setup input{width:100%;height:48px!important;font-size:14px!important;padding:0 11px!important;background:#080a0d!important;border:1px solid #354052!important}
+html.actis-mobile .actis-mobile-setup-hint{font-size:11px;line-height:1.5;color:#748195;margin-top:8px}
+html.actis-mobile .actis-mobile-setup-hint code{color:#a7bce0}
+html.actis-mobile .actis-mobile-setup-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+html.actis-mobile .actis-mobile-setup-actions button{font-size:12px!important;padding:9px 8px!important}
+html.actis-mobile .actis-mobile-setup-result{min-height:20px;font-size:11px;line-height:1.45;color:#f7768e;margin-top:12px}
+html.actis-mobile .actis-mobile-setup-result.ok{color:#9ece6a}
+html.actis-mobile .actis-core-local-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #27303b;background:#080a0d;padding:12px;margin:14px 0 4px}
+html.actis-mobile .actis-core-local-row div{display:grid;gap:3px}
+html.actis-mobile .actis-core-local-row span{font-size:9px;letter-spacing:.12em;color:#75839a}
+html.actis-mobile .actis-core-local-row strong{font-size:13px;color:#e1e8f2;font-weight:600}
+html.actis-mobile .actis-core-state{font-size:11px;color:#f7768e;text-transform:uppercase;letter-spacing:.06em}
+html.actis-mobile .actis-core-state.ok{color:#9ece6a}
+html.actis-mobile .local-actions{grid-template-columns:1fr 1fr;margin-top:10px}
+html.actis-mobile .actis-termux-first{margin-top:16px;padding:13px;border:1px solid #242c36;background:#0a0d11}
+html.actis-mobile .actis-termux-first>strong{font-size:13px;color:#dce5f0}
+html.actis-mobile .actis-termux-first p{font-size:12px;margin:6px 0 9px}
+html.actis-mobile .actis-termux-first code{display:block;max-height:76px;overflow:auto;padding:9px;background:#06080a;border:1px solid #202731;color:#9fb0c9;font-size:10px;line-height:1.45;white-space:normal;word-break:break-all}
+html.actis-mobile .actis-wide-btn{width:100%;margin-top:8px!important;font-size:12px!important}
+html.actis-mobile .actis-remote-core{margin-top:14px;border-top:1px solid #242c36;padding-top:10px}
+html.actis-mobile .actis-remote-core summary{font-size:12px;color:#8391a5;cursor:pointer;padding:7px 0}
+html.actis-mobile .channels-page{height:auto!important;min-height:calc(100dvh - 150px)!important}
+html.actis-mobile .channel-message-body{font-size:12px!important;line-height:1.6!important}
+html.actis-mobile .channel-message-head>b{font-size:11px!important}
+html.actis-mobile .connector-row{padding:11px!important;gap:10px!important}
+html.actis-mobile .connector-row h3{font-size:12px!important}
+html.actis-mobile .connector-description{font-size:10px!important;white-space:normal!important;line-height:1.45}
