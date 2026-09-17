@@ -60,10 +60,13 @@ def provider_status() -> dict[str, Any]:
 
 def save_provider(data: dict[str, Any]) -> dict[str, Any]:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    current = _load_provider()
+    submitted_key = str(data.get("api_key") or "").strip()
+    api_key = current["api_key"] if submitted_key == "__KEEP__" else submitted_key
     payload = {
-        "base_url": str(data.get("base_url") or "").strip().rstrip("/"),
-        "api_key": str(data.get("api_key") or "").strip(),
-        "model": str(data.get("model") or "").strip(),
+        "base_url": str(data.get("base_url") or current["base_url"] or "").strip().rstrip("/"),
+        "api_key": api_key,
+        "model": str(data.get("model") if "model" in data else current["model"] or "").strip(),
     }
     PROVIDER_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return provider_status()
@@ -92,7 +95,9 @@ def list_models_http(timeout: float = 8.0) -> list[str]:
         items = value.get("data", []) if isinstance(value, dict) else []
         return sorted({str(item.get("id") or "") for item in items if isinstance(item, dict) and item.get("id")})
     except Exception:
-        return list_models_http.__wrapped__() if hasattr(list_models_http, "__wrapped__") else sorted({cfg["model"]} if cfg["model"] else set())
+        # Reachability is part of health on Android. Do not make a dead gateway
+        # look alive merely because a model name was previously selected.
+        return []
 
 
 def _messages(agent: dict[str, Any], prompt: str, history: list[dict[str, Any]] | None, attachments: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -124,7 +129,7 @@ def _messages(agent: dict[str, Any], prompt: str, history: list[dict[str, Any]] 
 def _chat_http(model: str, messages: list[dict[str, Any]], timeout: float = 90.0) -> str:
     cfg = _load_provider()
     if not cfg["base_url"]:
-        raise RuntimeError("Modelo ainda não configurado neste Android. Configure um endpoint OpenAI-compatible no ACTIS Config.")
+        raise RuntimeError("Modelo ainda não configurado neste Android. Configure o 9Router no ACTIS Config.")
     selected = model or cfg["model"]
     if not selected:
         raise RuntimeError("Nenhum modelo foi selecionado para este agente.")
