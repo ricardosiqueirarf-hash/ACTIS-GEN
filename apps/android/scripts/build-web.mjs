@@ -17,8 +17,8 @@ html = html.replace(
   'width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1',
 );
 const bootstrap = `<script>\n(() => {\n  document.documentElement.classList.add('actis-mobile');\n  const q = new URLSearchParams(location.search).get('api');\n  const localCore = 'http://127.0.0.1:8765';\n  window.ACTIS_API_BASE = q ? q.replace(/\\/$/, '') : localCore;\n  localStorage.setItem('actis.api.base', window.ACTIS_API_BASE);\n})();\n</script>`;
-html = html.replace('</head>', `<link rel="stylesheet" href="/mobile.css?v=5"><link rel="stylesheet" href="/embedded-core.css?v=2">${bootstrap}</head>`);
-html = html.replace('</body>', '<script src="/mobile-runtime.js?v=5"></script></body>');
+html = html.replace('</head>', `<link rel="stylesheet" href="/mobile.css?v=6"><link rel="stylesheet" href="/embedded-core.css?v=2">${bootstrap}</head>`);
+html = html.replace('</body>', '<script src="/mobile-runtime.js?v=6"></script><script src="/router-guard.js?v=1"></script></body>');
 await writeFile(path.join(www, 'index.html'), html);
 // Keep the APK web surface in lock-step with the current ACTIS GEN UI.
 for (const entry of await readdir(sourceRoot, { withFileTypes: true })) {
@@ -28,6 +28,7 @@ for (const entry of await readdir(sourceRoot, { withFileTypes: true })) {
 }
 await copyFile(path.join(androidRoot, 'src/mobile.css'), path.join(www, 'mobile.css'));
 await copyFile(path.join(androidRoot, 'src/embedded-core.css'), path.join(www, 'embedded-core.css'));
+await copyFile(path.join(androidRoot, 'src/router-guard.js'), path.join(www, 'router-guard.js'));
 
 await build({
   entryPoints: [path.join(androidRoot, 'src/mobile-runtime.js')],
