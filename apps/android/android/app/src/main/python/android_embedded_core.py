@@ -23,8 +23,14 @@ def start(files_dir: str) -> str:
         os.environ["ACTIS_RUNTIME"] = "android-embedded"
         os.environ.setdefault("ACTIS_CORS_ORIGINS", "https://localhost,http://localhost,capacitor://localhost")
 
+        from meuharness.android_bootstrap import ensure_android_default_roster
         from meuharness.android_scheduler import start_android_scheduler
         from meuharness.web_android import make_server
+
+        # A fresh APK has a separate local database from the desktop runtime.
+        # Seed only the mandatory first-party roster, preserving any existing
+        # Android-side customisations and avoiding duplicates on every boot.
+        ensure_android_default_roster()
 
         _SERVER = make_server("127.0.0.1", 8765)
         _SCHEDULER_STOP, _thread = start_android_scheduler()
