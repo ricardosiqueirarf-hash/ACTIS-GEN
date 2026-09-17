@@ -10,6 +10,7 @@ from typing import Any
 DATA_DIR = Path.home() / ".local" / "share" / "actis-gen"
 DB_FILE = DATA_DIR / "actis.db"
 _LOCK = threading.RLock()
+_FTS5_AVAILABLE: bool | None = None
 
 
 def connect() -> sqlite3.Connection:
@@ -19,6 +20,31 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def _ensure_memory_fts(conn: sqlite3.Connection) -> bool:
+    """Enable FTS5 when the bundled SQLite supports it.
+
+    Some Android Python runtimes ship SQLite without the optional FTS5 module.
+    Memory search must degrade gracefully instead of preventing ACTIS Core boot.
+    """
+    global _FTS5_AVAILABLE
+    if _FTS5_AVAILABLE is False:
+        return False
+    try:
+        conn.execute(
+            """CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                id UNINDEXED, agent_id UNINDEXED, content
+            )"""
+        )
+    except sqlite3.OperationalError as exc:
+        message = str(exc).lower()
+        if "fts5" not in message and "no such module" not in message:
+            raise
+        _FTS5_AVAILABLE = False
+        return False
+    _FTS5_AVAILABLE = True
+    return True
 
 
 def init_db() -> None:
@@ -50,9 +76,6 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_memories_agent_created
         ON memories(agent_id, created_at DESC);
-        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-            id UNINDEXED, agent_id UNINDEXED, content
-        );
         CREATE TABLE IF NOT EXISTS approvals (
             id TEXT PRIMARY KEY,
             agent_id TEXT NOT NULL,
@@ -84,6 +107,12 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_started
         ON workflow_runs(workflow_id, started_at DESC);
         """)
+        _ensure_memory_fts(conn)
+
+
+def memory_fts_available() -> bool:
+    init_db()
+    return bool(_FTS5_AVAILABLE)
 
 
 def load_collection(name: str) -> list[dict[str, Any]]:
