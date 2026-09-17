@@ -9,6 +9,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass
 from hashlib import sha256
@@ -147,9 +148,36 @@ def ensure_browser(agent_id: str) -> BrowserRuntime:
         port = _choose_port(safe_id)
         log_path = profile / "chrome.log"
         log = log_path.open("ab", buffering=0)
+        android = "ANDROID_ROOT" in os.environ or sys.platform == "android"
+        tmp_dir = DATA_DIR / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        chrome_binary = _chrome_binary()
+        android_args: list[str] = []
+        if android:
+            version = "149.0.0.0"
+            try:
+                output = subprocess.check_output(
+                    [chrome_binary, "--version"], text=True, stderr=subprocess.DEVNULL, timeout=2
+                )
+                match = re.search(r"(\d+\.\d+\.\d+\.\d+)", output)
+                if match:
+                    version = match.group(1)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            user_agent = os.environ.get(
+                "ACTIS_BROWSER_USER_AGENT",
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{version} Safari/537.36",
+            )
+            android_args = [
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                f"--user-agent={user_agent}",
+            ]
         command = [
-            _chrome_binary(),
+            chrome_binary,
             "--headless=new",
+            *android_args,
             "--remote-debugging-address=127.0.0.1",
             f"--remote-debugging-port={port}",
             f"--user-data-dir={profile}",
@@ -160,8 +188,11 @@ def ensure_browser(agent_id: str) -> BrowserRuntime:
             "--window-size=1440,1000",
             "about:blank",
         ]
+        child_env = os.environ.copy()
+        child_env.setdefault("TMPDIR", str(tmp_dir))
         process = subprocess.Popen(
             command,
+            env=child_env,
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,

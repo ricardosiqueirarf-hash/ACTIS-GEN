@@ -11,3 +11,6 @@ build/
 .env
 .env.*
 !.env.example
+.venv-android-browser/
+*-android.png
+*android*.png
