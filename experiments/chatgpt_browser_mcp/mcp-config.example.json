@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "actis-chatgpt-browser-poc": {
+      "command": "/home/lowkanta/ACTIS-GEN/experiments/chatgpt_browser_mcp/run.sh",
+      "args": []
+    }
+  }
+}

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>ACTIS ChatGPT MCP Fixture</title></head>
+<body>
+  <h1>Browser MCP POC</h1>
+  <label>Mensagem <input id="message" placeholder="Digite aqui"></label>
+  <button id="send" onclick="sendMessage()">Enviar</button>
+  <div id="result">aguardando</div>
+  <script>
+    function sendMessage() {
+      const value = document.getElementById('message').value;
+      document.getElementById('result').textContent = 'recebido:' + value;
+    }
+  </script>
+</body>
+</html>
