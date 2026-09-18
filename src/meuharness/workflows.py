@@ -7,6 +7,14 @@ from typing import Any
 from uuid import uuid4
 
 from meuharness.storage import connect, init_db
+from meuharness.tenant import (
+    assert_organization_access,
+    current_organization_id,
+    filter_by_organization,
+    normalize_organization_id,
+    organization_context,
+    resolve_inherited_organization_id,
+)
 
 NODE_TYPES = {"start", "agent", "condition", "end"}
 
@@ -23,14 +31,32 @@ def list_workflows() -> list[dict]:
     init_db()
     with connect() as conn:
         rows = conn.execute("SELECT payload FROM workflows ORDER BY updated_at DESC").fetchall()
-    return [json.loads(row["payload"]) for row in rows]
+    workflows = [json.loads(row["payload"]) for row in rows]
+    return filter_by_organization(workflows)
 
 
 def get_workflow(workflow_id: str) -> dict | None:
     init_db()
     with connect() as conn:
         row = conn.execute("SELECT payload FROM workflows WHERE id=?", (workflow_id,)).fetchone()
-    return json.loads(row["payload"]) if row else None
+    workflow = json.loads(row["payload"]) if row else None
+    organization_id = current_organization_id()
+    if workflow and organization_id:
+        assert_organization_access(workflow, organization_id, resource="Workflow")
+    return workflow
+
+
+def _workflow_organization(data: dict, existing: dict | None = None) -> str | None:
+    return resolve_inherited_organization_id(data.get("organization_id"), existing)
+
+
+def _assert_workflow_agents(workflow: dict) -> None:
+    from meuharness.agents import get_agent
+
+    for node in workflow.get("nodes") or []:
+        agent_id = str(node.get("agent_id") or "").strip()
+        if agent_id:
+            get_agent(agent_id)
 
 
 def _normalize_node(node: dict) -> dict:
@@ -158,6 +184,7 @@ def save_workflow(data: dict, workflow_id: str | None = None) -> dict:
     raw_edges = data["edges"] if "edges" in data else (existing or {}).get("edges", [])
     nodes = [_normalize_node(n) for n in list(raw_nodes or [])]
     edges = [_normalize_edge(e) for e in list(raw_edges or [])]
+    organization_id = _workflow_organization(data, existing)
     workflow = {
         "id": workflow_id or uuid4().hex,
         "name": str(data.get("name") if "name" in data else (existing or {}).get("name") or "Workflow").strip()[:100] or "Workflow",
@@ -167,6 +194,11 @@ def save_workflow(data: dict, workflow_id: str | None = None) -> dict:
         "created_at": (existing or {}).get("created_at") or now,
         "updated_at": now,
     }
+    if organization_id:
+        workflow["organization_id"] = organization_id
+    if current_organization_id():
+        assert_organization_access(workflow, resource="Workflow")
+    _assert_workflow_agents(workflow)
     payload = _json(workflow)
     with connect() as conn:
         conn.execute(
@@ -177,6 +209,9 @@ def save_workflow(data: dict, workflow_id: str | None = None) -> dict:
 
 
 def delete_workflow(workflow_id: str) -> bool:
+    workflow = get_workflow(workflow_id)
+    if not workflow:
+        return False
     init_db()
     with connect() as conn:
         cur = conn.execute("DELETE FROM workflows WHERE id=?", (workflow_id,))
@@ -194,7 +229,27 @@ def list_workflow_runs(workflow_id: str | None = None, limit: int = 50) -> list[
     params.append(max(1, min(int(limit), 200)))
     with connect() as conn:
         rows = conn.execute(query, params).fetchall()
-    return [dict(row) | {"trace": json.loads(row["trace"] or "[]")} for row in rows]
+    runs = [dict(row) | {"trace": json.loads(row["trace"] or "[]")} for row in rows]
+    if workflow_id:
+        workflow = get_workflow(workflow_id)
+        if not workflow:
+            return []
+        return [run for run in runs if run.get("workflow_id") == workflow_id]
+
+    with connect() as conn:
+        workflow_rows = conn.execute("SELECT id, payload FROM workflows").fetchall()
+    workflow_organizations = {
+        row["id"]: normalize_organization_id(json.loads(row["payload"]).get("organization_id"))
+        for row in workflow_rows
+    }
+    organization_id = current_organization_id()
+    if organization_id:
+        runs = [
+            run
+            for run in runs
+            if workflow_organizations.get(str(run.get("workflow_id") or "")) == organization_id
+        ]
+    return runs
 
 
 def _condition_result(expression: str, text: str) -> bool:
@@ -228,6 +283,17 @@ def _render_prompt(template: str, *, workflow_input: str, previous: str, label: 
 
 
 async def run_workflow(workflow_id: str, workflow_input: str = "", env_file: str | None = None) -> dict:
+    workflow = get_workflow(workflow_id)
+    if not workflow:
+        raise ValueError("Workflow não encontrado.")
+    organization_id = normalize_organization_id(workflow.get("organization_id"))
+    if organization_id:
+        with organization_context(organization_id):
+            return await _run_workflow_impl(workflow_id, workflow_input, env_file)
+    return await _run_workflow_impl(workflow_id, workflow_input, env_file)
+
+
+async def _run_workflow_impl(workflow_id: str, workflow_input: str = "", env_file: str | None = None) -> dict:
     from meuharness.execution_service import execute_agent
 
     workflow = get_workflow(workflow_id)

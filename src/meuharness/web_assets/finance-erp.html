@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ColorGlass Financeiro</title>
+<link rel="stylesheet" href="/finance-erp.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">CG</div>
+      <div><b>ColorGlass</b><span>Financeiro</span></div>
+    </div>
+    <nav id="nav">
+      <button class="nav-item active" data-view="overview">Visão Geral</button>
+      <button class="nav-item" data-view="bank">Banco</button>
+      <button class="nav-item" data-view="reconciliation">Conciliação</button>
+      <button class="nav-item" data-view="receivables">A Receber</button>
+      <button class="nav-item" data-view="payables">A Pagar</button>
+      <button class="nav-item" data-view="cashflow">Fluxo de Caixa</button>
+      <button class="nav-item" data-view="dre">DRE</button>
+      <button class="nav-item" data-view="chart">Plano de Contas</button>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="dot"></span>
+      <div><b>Local only</b><small>127.0.0.1:8770</small></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">Visão Geral</h1>
+        <p id="pageSubtitle">Posição financeira consolidada da ColorGlass.</p>
+      </div>
+      <div class="actions">
+        <div class="period">
+          <input id="dateFrom" type="date">
+          <span>até</span>
+          <input id="dateTo" type="date">
+        </div>
+        <button id="refreshBtn" class="button ghost">Atualizar</button>
+        <button id="refreshReceivablesBtn" class="button primary">Atualizar ERP</button>
+      </div>
+    </header>
+
+    <div id="sourceBanner" class="source-banner hidden"></div>
+    <section id="content" class="content">
+      <div class="loading">Carregando financeiro real...</div>
+    </section>
+  </main>
+</div>
+<script src="/finance-erp.js"></script>
+</body>
+</html>

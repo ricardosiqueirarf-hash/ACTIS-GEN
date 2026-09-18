@@ -1,0 +1,10 @@
+{
+  "name": "actis-whatsapp-baileys",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "qrcode-terminal": "0.12.0"
+  }
+}

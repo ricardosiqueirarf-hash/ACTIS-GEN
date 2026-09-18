@@ -17,6 +17,7 @@ class NineRouterSettings:
     model: str
     base_url: str = "http://127.0.0.1:20128/v1"
     timeout_s: float = 30.0
+    max_retries: int = 1
 
     def __post_init__(self) -> None:
         if not isinstance(self.api_key, str) or not self.api_key.strip():
@@ -55,6 +56,10 @@ class NineRouterSettings:
             raise HarnessError(
                 "configuration", "NINEROUTER_TIMEOUT_SECONDS must be finite and positive."
             )
+        if isinstance(self.max_retries, bool) or not isinstance(self.max_retries, int) or not 0 <= self.max_retries <= 5:
+            raise HarnessError(
+                "configuration", "NINEROUTER_MAX_RETRIES must be an integer between 0 and 5."
+            )
         object.__setattr__(self, "base_url", self.base_url.rstrip("/"))
         object.__setattr__(self, "api_key", self.api_key.strip())
         object.__setattr__(self, "model", self.model.strip())
@@ -82,9 +87,16 @@ class NineRouterSettings:
             raise HarnessError(
                 "configuration", "NINEROUTER_TIMEOUT_SECONDS must be a number."
             ) from None
+        try:
+            max_retries = int(values.get("NINEROUTER_MAX_RETRIES") or "1")
+        except ValueError:
+            raise HarnessError(
+                "configuration", "NINEROUTER_MAX_RETRIES must be an integer between 0 and 5."
+            ) from None
         return cls(
             api_key=values.get("NINEROUTER_API_KEY") or "",
             model=values.get("NINEROUTER_MODEL") or "",
             base_url=values.get("NINEROUTER_BASE_URL") or "http://127.0.0.1:20128/v1",
             timeout_s=timeout,
+            max_retries=max_retries,
         )

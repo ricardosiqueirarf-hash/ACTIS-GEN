@@ -68,6 +68,7 @@ def endpoint():
             api_key="secret-key-do-not-log",
             model="test/model",
             timeout_s=1,
+            max_retries=0,
         )
     )
     yield gateway, state
@@ -126,6 +127,25 @@ def test_http_failures_are_normalized_without_sdk_retries(endpoint, status, code
     assert len(state["requests"]) == 1
 
 
+def test_transient_gateway_failure_retries_once_when_enabled(endpoint):
+    gateway, state = endpoint
+    retrying = NineRouterGateway(
+        NineRouterSettings(
+            base_url=gateway.settings.base_url,
+            api_key="secret-key-do-not-log",
+            model="test/model",
+            timeout_s=1,
+            max_retries=1,
+        )
+    )
+    state["status"] = 503
+    with pytest.raises(HarnessError) as exc:
+        asyncio.run(Harness(MAFRuntime(retrying)).run(HarnessRequest("x")))
+    assert exc.value.code == "gateway_error"
+    assert exc.value.retryable is True
+    assert len(state["requests"]) == 2
+
+
 def test_real_maf_deadline(endpoint):
     gateway, state = endpoint
     state["delay"] = 0.4
@@ -140,6 +160,22 @@ def test_empty_response_is_failure(endpoint):
     with pytest.raises(HarnessError) as exc:
         asyncio.run(Harness(MAFRuntime(gateway)).run(HarnessRequest("x")))
     assert exc.value.code == "invalid_response"
+
+
+def test_gateway_defaults_to_one_transient_sdk_retry(monkeypatch):
+    monkeypatch.setenv("NINEROUTER_API_KEY", "test")
+    monkeypatch.setenv("NINEROUTER_MODEL", "test/model")
+    monkeypatch.delenv("NINEROUTER_MAX_RETRIES", raising=False)
+    settings = NineRouterSettings.from_env()
+    assert settings.max_retries == 1
+
+
+def test_gateway_retry_count_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("NINEROUTER_API_KEY", "test")
+    monkeypatch.setenv("NINEROUTER_MODEL", "test/model")
+    monkeypatch.setenv("NINEROUTER_MAX_RETRIES", "0")
+    settings = NineRouterSettings.from_env()
+    assert settings.max_retries == 0
 
 
 def test_settings_hide_key_and_environment_overrides_file(tmp_path, monkeypatch):

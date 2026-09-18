@@ -1,4 +1,4 @@
-"""Read-only ACTIS GEN tools available to every agent."""
+"""Safe ACTIS GEN tools available to every agent."""
 
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ def actis_list_tools() -> str:
     return json.dumps({"tools": list_tool_catalog()}, ensure_ascii=False)
 
 
-def build_public_tools() -> list[object]:
-    """Tools safe to expose to every agent without prior authorization."""
-    return [actis_list_tools]
+def build_public_tools(*, agent_id: str = "", run_id: str | None = None, env_file: str | None = None) -> list[object]:
+    """Safe baseline tools plus the isolated runtime of the agent's own company."""
+    tools: list[object] = [actis_list_tools]
+    if agent_id:
+        from meuharness.company_bus import build_company_tools
+        tools.extend(build_company_tools(agent_id, run_id=run_id, env_file=env_file))
+    return tools

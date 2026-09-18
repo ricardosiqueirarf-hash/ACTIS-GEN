@@ -33,7 +33,7 @@ class NineRouterGateway:
             api_key=self.settings.api_key,
             base_url=self.settings.base_url,
             timeout=self.settings.timeout_s,
-            max_retries=0,
+            max_retries=self.settings.max_retries,
         )
 
     async def list_models(self) -> tuple[str, ...]:

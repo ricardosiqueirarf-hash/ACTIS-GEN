@@ -76,3 +76,12 @@ A API é local e não possui autenticação/RBAC nesta versão. Não exponha a p
 ## Erros
 
 Validações de domínio retornam normalmente `400`; recursos ausentes podem retornar `404`; concorrência do mesmo agente retorna `409`; falhas inesperadas são sanitizadas em `500`.
+## ACTIS Config / Connectors
+
+- `GET /api/connectors` — lista registry de integrações.
+- `POST /api/connectors` — cria connector.
+- `PUT /api/connectors/{id}` — atualiza configuração/acesso.
+- `DELETE /api/connectors/{id}` — remove connector não built-in.
+- `POST /api/connectors/{id}/test` — executa health/probe da conexão.
+
+Secrets não são retornados nem persistidos; `credential_ref` referencia variável de ambiente.

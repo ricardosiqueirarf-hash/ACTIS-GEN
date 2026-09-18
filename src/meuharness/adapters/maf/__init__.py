@@ -7,7 +7,7 @@ import logging
 from contextlib import AsyncExitStack
 from typing import Protocol
 
-from agent_framework import Agent, Content, Message
+from agent_framework import Agent, Content, Message, FunctionMiddleware, FunctionInvocationContext, MiddlewareTermination
 from agent_framework.openai import OpenAIChatCompletionClient
 from openai import AsyncOpenAI
 
@@ -15,6 +15,33 @@ from meuharness.core.contracts import HarnessRequest, RuntimeResult, TokenUsage
 from meuharness.providers.openai_errors import normalize_gateway_error
 
 LOGGER = logging.getLogger("meuharness.maf")
+
+_FAST_TERMINAL_TOOLS = {"colorglass_quote_create_with_door", "colorglass_quote_add_door_fast"}
+
+
+class _VerifiedFastToolTermination(FunctionMiddleware):
+    def __init__(self, tool_name: str) -> None:
+        self.tool_name = tool_name
+
+    async def process(self, context: FunctionInvocationContext, call_next) -> None:
+        await call_next()
+        if str(getattr(context.function, "name", "")) != self.tool_name:
+            return
+        raw = context.result
+        try:
+            with open("/tmp/actis-fast-middleware.log", "a", encoding="utf-8") as debug:
+                debug.write(f"tool={getattr(context.function, 'name', '')} type={type(raw).__name__} repr={raw!r}\n")
+        except Exception:
+            pass
+        parsed = raw
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                return
+        if isinstance(parsed, dict) and parsed.get("ok") is True and parsed.get("status") == "verified":
+            raise MiddlewareTermination("verified_fast_tool", result=raw)
+
 
 
 class OpenAICompatibleGateway(Protocol):
@@ -51,12 +78,19 @@ class MAFRuntime:
                         tools[i] = await stack.enter_async_context(tool)
                 sdk = await stack.enter_async_context(self.gateway.open_client())
                 client = OpenAIChatCompletionClient(model=self.gateway.model, async_client=sdk)
+                terminal_tool = None
+                if isinstance(request.tool_choice, dict):
+                    required_name = str(request.tool_choice.get("required_function_name") or "")
+                    if required_name in _FAST_TERMINAL_TOOLS:
+                        terminal_tool = required_name
+                middleware = [_VerifiedFastToolTermination(terminal_tool)] if terminal_tool else None
                 agent = await stack.enter_async_context(
                     Agent(
                         client=client,
                         name="ACTIS GEN",
                         instructions=request.instructions or None,
                         tools=tools or None,
+                        middleware=middleware,
                     )
                 )
                 run_input: str | Message = prompt
@@ -68,9 +102,10 @@ class MAFRuntime:
                         if uri:
                             contents.append(Content.from_uri(uri=uri, media_type=media_type))
                     run_input = Message("user", contents)
-                response = await agent.run(
-                    run_input, options={"max_tokens": request.max_output_tokens}
-                )
+                run_options: dict[str, object] = {"max_tokens": request.max_output_tokens}
+                if request.tool_choice is not None:
+                    run_options["tool_choice"] = request.tool_choice
+                response = await agent.run(run_input, options=run_options)
                 usage = response.usage_details or {}
                 return RuntimeResult(
                     text=response.text,

@@ -11,3 +11,18 @@ build/
 .env
 .env.*
 !.env.example
+
+# Local development handoff runtime state
+.ACTIS_DEV_STATE.json
+
+# Local/generated runtime and QA artifacts
+node_modules/
+.gradle/
+logs/
+.visual-audit/
+**/local.properties
+apps/android/www/
+apps/android/android/app/src/main/assets/public/
+
+# Local one-off benchmarks
+tmp_latency_test.py

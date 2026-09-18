@@ -9,6 +9,14 @@ from uuid import uuid4
 
 from meuharness.agents import DATA_DIR, get_agent
 from meuharness.storage import import_legacy_json, load_collection, save_collection
+from meuharness.tenant import (
+    assert_organization_access,
+    current_organization_id,
+    entity_organization_id,
+    filter_by_organization,
+    normalize_organization_id,
+    resolve_inherited_organization_id,
+)
 
 AUTOMATIONS_FILE = DATA_DIR / "automations.json"
 _LOCK = threading.RLock()
@@ -59,11 +67,35 @@ def _next_daily(hhmm: str, after: datetime | None = None) -> datetime:
     return candidate.astimezone(UTC)
 
 
+def _assert_automation_access(automation: dict[str, Any]) -> None:
+    organization_id = current_organization_id()
+    if organization_id:
+        assert_organization_access(
+            automation,
+            organization_id,
+            resource="Automação",
+            allow_unscoped=True,
+        )
+
+
+def _automation_organization(automation: dict[str, Any]) -> str | None:
+    return normalize_organization_id(automation.get("organization_id"))
+
+
+def _read_visible() -> list[dict[str, Any]]:
+    return filter_by_organization(_read(), include_unscoped=True)
+
+
 def _normalized(data: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
     base = dict(existing or {})
     agent_id = str(data.get("agent_id", base.get("agent_id", "")) or "").strip()
-    if not get_agent(agent_id):
+    agent = get_agent(agent_id)
+    if not agent:
         raise ValueError("Agente da automação não encontrado.")
+    organization_id = resolve_inherited_organization_id(data.get("organization_id"), existing)
+    agent_organization_id = entity_organization_id(agent)
+    if organization_id and agent_organization_id and organization_id != agent_organization_id:
+        raise PermissionError("Automação pertence a outra organization.")
     action = str(data.get("action", base.get("action", "")) or "").strip()
     if not action:
         raise ValueError("Ação da automação é obrigatória.")
@@ -77,6 +109,10 @@ def _normalized(data: dict[str, Any], existing: dict[str, Any] | None = None) ->
         "trigger_type": trigger_type,
         "enabled": bool(data.get("enabled", base.get("enabled", True))),
     })
+    if organization_id:
+        base["organization_id"] = organization_id
+    elif "organization_id" in base:
+        base.pop("organization_id", None)
     if trigger_type == "interval":
         seconds = int(data.get("interval_seconds", base.get("interval_seconds", 3600)) or 3600)
         base["interval_seconds"] = max(60, seconds)

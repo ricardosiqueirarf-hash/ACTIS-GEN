@@ -48,7 +48,7 @@ Agentes persistem, entre outros campos:
 
 Conversa e Run são entidades diferentes. Conversas mantêm mensagens persistentes e cada envio gera uma Run. O runtime usa até 16 mensagens anteriores válidas como contexto conversacional.
 
-O agente `general` recebe ACTIS Admin e consegue administrar agentes, modelos, Runs, automações e delegar tarefas via tools `actis_*`.
+O agente `general` recebe a skill `actis.control-plane`, ACTIS Admin e o catálogo vivo de `feature_registry.py`. Ele consegue descobrir as features atuais e administrar via tools `actis_*` agentes, empresas/setores, contexto/projetos, modelos, Runs/tarefas/eventos, approvals, automações, workflows, connectors, canais/Agent Bus e conversas. Para WhatsApp local-first, o General inspeciona/configura/sincroniza o agente alvo; ações de atendimento/envio permanecem no agente WhatsApp autorizado e são delegadas pelo kernel.
 
 ## 4. Chat global / World
 
@@ -268,6 +268,8 @@ O ACTIS não implementa fallback próprio; fallback/routing upstream pertencem a
 - **Empresas** — empresas, setores, projetos, drag/drop e contexto;
 - **Sobre** — documentação interna.
 
+A fonte canônica para identidade e implementação visual é `docs/VISUAL-SYSTEM.md`. Mudanças de UI devem preservar a linguagem pixelada, gamificada, técnica e dark definida ali; divergências permanentes exigem atualização do próprio Visual System.
+
 ## 16. API
 
 A API HTTP local cobre agentes, companies, sectors, projects, context, bindings, conversations, automations, approvals, workflows/workflow-runs, memory, Runs, Events, storage, models e providers.
@@ -308,24 +310,19 @@ Esses números são snapshot, não contrato.
 
 ## 19. Validação real
 
-Auditoria atual:
+Validação específica do contrato do General em 2026-09-16:
 
 ```text
-pytest -q
-→ 48 passed
+ruff check feature_registry/control_tools/skills/tool_registry + teste do General
+→ All checks passed
 
-ruff check src/meuharness tests
-→ 4 findings
+pytest -q tests/test_general_control_plane.py tests/test_skills.py tests/test_channels.py
+→ 14 passed
 ```
 
-Os 4 findings atuais são:
+Também houve checkpoint completo de `pytest -q` com **87 passed** nesta mesma sessão. Como o working tree é compartilhado e havia outra alteração concorrente no WhatsApp depois desse checkpoint, a documentação não assume que o lint global permaneça imutável durante trabalhos paralelos.
 
-- import formatting em `web.py`;
-- import `asyncio` não usado em `workflows.py`;
-- expressão redundante em `_normalize_node()`;
-- `except Exception` amplo no executor de workflow.
-
-Logo, a documentação anterior que dizia **“Ruff OK” estava desatualizada**.
+A regressão do General cobre catálogo de features, capabilities do ACTIS Admin e presença das tools administrativas das features atuais.
 
 `ruff check .` não é a métrica correta porque também varre `upstream/agent-framework`, que possui lint/configuração próprios.
 

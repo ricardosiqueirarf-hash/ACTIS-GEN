@@ -15,6 +15,8 @@ TOOL_SCOPES = {
     "harness_terminal": ("terminal.exec",),
     "harness_computer": ("computer.view", "computer.control"),
     "skill_excel": ("spreadsheet.read", "spreadsheet.write"),
+    "excel_toolkit": ("spreadsheet.read", "spreadsheet.write"),
+    "pdf_toolkit": ("pdf.read", "pdf.write"),
     "actis_admin": ("actis.admin",),
 }
 
