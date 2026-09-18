@@ -1,0 +1,20 @@
+[Unit]
+Description=ACTIS Financeiro ColorGlass desktop nagger
+After=graphical-session.target actis-gen-web.service actis-finance-erp.service
+Wants=actis-gen-web.service actis-finance-erp.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lowkanta/ACTIS-GEN
+Environment=PYTHONPATH=/home/lowkanta/ACTIS-GEN/src
+Environment=DISPLAY=:0
+Environment=GDK_BACKEND=x11
+Environment=XAUTHORITY=/home/lowkanta/.Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+ExecStart=/usr/bin/python3 -m meuharness.finance_desktop_assistant
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

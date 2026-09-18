@@ -2,7 +2,7 @@
 
 > **Fonte canônica de design do produto.** Toda nova tela, feature, refactor visual, release ou atualização de UI deve consultar este documento antes da implementação.
 >
-> Versão: **1.0** · consolidada em **2026-09-15** a partir do produto local real em `/home/lowkanta/ACTIS-GEN`.
+> Versão: **1.1** · revisada em **2026-09-16** a partir do produto local real em `/home/lowkanta/ACTIS-GEN`.
 
 ## 1. Identidade visual
 
@@ -39,16 +39,20 @@ Regras:
 - o ponto azul à esquerda pode representar sistema conectado/ativo;
 - não aplicar sombras, bevel, blur ou gradientes no wordmark.
 
-### Agentes
+### Agentes — espécie BOT-02
 
-As criaturas pixeladas são um ativo central do produto, não decoração temporária.
+Por instrução explícita do usuário em 2026-09-16, somente os mascotes adotam a referência oval do Grok Bot com cores invertidas: corpo branco e dois olhos pretos. O restante da interface mantém seu design atual.
 
-- cada agente possui cor própria;
-- a forma nasce de uma grade simples e reproduzível;
-- olhos/pupilas podem responder ao cursor;
-- animações devem ser curtas, discretas e ligadas a estado;
-- não substituir agentes por avatares genéricos, fotos, blobs 3D ou ilustrações vetoriais polidas;
-- variações de cor pertencem ao agente e **não** mudam o significado das cores semânticas da UI.
+- Todos os agentes compartilham a mesma silhueta oval branca, com renderização SVG suave.
+- O editor oferece somente cor de destaque, expressão facial e acessórios. Expressões: amigável (olhos arqueados), curioso (olhos assimétricos), determinado (olhar estreito e inclinado) e zangado (inclinação forte para o centro). Ícones usam os mesmos olhos do mascote. Expressões antigas são mapeadas para as quatro atuais ao renderizar, sem migração destrutiva dos agentes.
+- Os olhos acompanham o mouse; piscadas e movimentos discretos usam fases individuais. A preferência de movimento reduzido desativa animações.
+- A cor de destaque personaliza acessórios, sem alterar o corpo branco ou cores semânticas da interface.
+- Empresas possuem `color` persistida em #RRGGBB, configurável no cabeçalho da empresa. O mascote usa camisa lisa sem gola conforme `company_id`; transferir troca a cor e desalocar remove a camisa. Expressão e acessórios são preservados; renomear a empresa mantém sua cor.
+- A expressão Neutra reutiliza os dois olhos originais em cápsula inclinada do BOT-02 e está disponível junto às quatro expressões anteriores.
+- Acessórios: coroa, espada, celular, headset, lupa, chave, cursor, cachecol e livro; também é possível ficar sem acessório.
+- Os identificadores dos acessórios existentes são preservados para compatibilidade; `none` e `sword` são novas opções.
+- Miniaturas e avatares de chat reutilizam o mesmo componente, sem movimento corporal contínuo.
+- Novos agentes reutilizam a espécie e podem escolher automaticamente um acessório coerente com sua função.
 
 ### Grid visual
 
@@ -77,8 +81,8 @@ Escala recomendada:
 
 | Uso | Tamanho | Peso |
 |---|---:|---:|
-| micro metadata | 8–10 px | 400–600 |
-| label / status | 10–12 px | 500–700 |
+| micro metadata | 9–11 px | 400–600 |
+| label / status | 11–12 px | 500–700 |
 | controles / tabela | 12–14 px | 400–600 |
 | corpo / chat | 14–16 px | 400–500 |
 | título de seção | 16–18 px | 600–700 |
@@ -99,8 +103,8 @@ A UI usa quase-preto como base e cores saturadas somente quando carregam signifi
 --line:     #242831; /* divisória padrão */
 --line-2:   #303642; /* borda de foco/ênfase */
 --text:     #d8dee9; /* texto principal */
---muted:    #737b8c; /* texto secundário */
---subtle:   #536074; /* metadata de baixa prioridade */
+--muted:    #98a4b7; /* texto secundário */
+--subtle:   #8793a6; /* metadata de baixa prioridade */
 ```
 
 ### Tokens semânticos
@@ -128,9 +132,9 @@ Escala preferencial:
 
 Regras:
 
-- sidebar desktop: aproximadamente `196 px`;
-- topbar: aproximadamente `44 px`;
-- padding padrão de conteúdo: `18–20 px`;
+- sidebar desktop: `196 px`, recolhível para `64 px`; abaixo de `760 px`, menu acessível pelo botão no topo;
+- topbar: aproximadamente `48 px`;
+- padding padrão de conteúdo: `24 px` no desktop, `16 px` em notebook compacto e `12 px` em mobile;
 - gaps entre cards: `8–12 px`;
 - painéis densos usam `8–12 px` internos;
 - modais e páginas documentais podem usar `16–24 px`.
@@ -380,7 +384,7 @@ Exemplo de núcleo desejado:
   --panel-2: #11141a;
   --line: #242831;
   --text: #d8dee9;
-  --muted: #737b8c;
+  --muted: #98a4b7;
   --accent: #7aa2f7;
   --ok: #9ece6a;
   --warning: #e0af68;
@@ -417,3 +421,33 @@ Para features futuras, a pergunta não é “como esta página quer parecer?”,
 > **Como esta feature se expressa dentro da linguagem visual do ACTIS GEN?**
 
 A identidade deve evoluir por extensão controlada, não por reinvenção a cada tela.
+
+
+## 18. Revisão de UI/UX — 2026-09-16
+
+A revisão 1.1 preserva o wordmark, a espécie GEN-01, os acessórios, o fundo escuro e a família monoespaçada.
+
+- Navegação agrupada em Operação, Organização, Sistema e Projeto; item atual identificado por cor, texto e `aria-current`.
+- Menu recolhível com preferência local e controle visível em telas menores; Escape fecha o menu mobile.
+- Agentes: busca por nome, modelo e ferramenta, filtro de empresa, contagem de resultados, cartões que permitem nomes longos e abertura por Enter/Espaço.
+- Execuções: filtros combinados por texto, agente e estado; tarefas ativas permanecem fora do filtro de histórico. Detalhes têm controle `aria-expanded` e duração em segundos.
+- World: atividade recente recolhível; setores vazios indicam a possibilidade de arrastar agentes.
+- Workflows: assistente e testes em painéis recolhíveis, canvas proporcional à janela e painel de configuração com largura limitada.
+- Ferramentas: ícones SVG geométricos coerentes, textos legíveis e cartões com grade adaptável.
+- Aprovações preserva justificativa e escopo em telas pequenas; chat mantém o histórico de execuções disponível.
+- A identificação dos agentes na galeria não declara disponibilidade operacional sem consultar o estado de execução. O World continua sendo a superfície de estado ao vivo.
+
+### Evidência desta revisão
+
+JavaScript passou na checagem de sintaxe. CSS canônico passou no parser. Verificação de DOM com respostas locais registradas cobriu as 12 áreas, filtros, estados vazios, abertura por teclado, chat, configuração e campos de automação sem escrita de dados ou chamada de modelo.
+
+A renderização visual em navegador real não foi validada nesta sessão: a política do navegador remoto bloqueou o acesso à prévia local. Responsividade foi implementada em CSS, mas a comparação final de screenshots permanece pendente.
+
+## Harness x Skill sets
+
+Na tela **Ferramentas**, capacidades são exibidas em duas camadas distintas:
+
+- **Harness**: acesso técnico de baixo nível (`browser`, arquivos, terminal, computer use e runtime nativo do ACTIS).
+- **Skill sets**: comportamentos compostos e reutilizáveis que podem herdar um ou mais Harnesses.
+
+A mesma separação aparece na configuração do agente. Skills do domínio WhatsApp (`browser.whatsapp`, `whatsapp.messaging`, `whatsapp.inbox`, `whatsapp.labels`, `whatsapp.routing`, `whatsapp.ai-agent`, `whatsapp.customer-service`) pertencem visualmente a **Skill sets**, não ao catálogo de Harness.

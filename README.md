@@ -92,7 +92,9 @@ state          → ready / running / planned / blocked / failed / etc.
 organization   → company + sector placement
 ```
 
-The `general` agent can receive `actis.control-plane` and operate ACTIS itself through `actis_*` tools instead of merely describing administrative actions.
+The `general` agent receives `actis.control-plane` and treats the live feature registry + system state as its source of truth. It can operate administrative features through `actis_*` tools and delegate domain-specific actions to the authorized specialist agent instead of merely describing what should happen.
+
+**General integration is part of the feature contract:** every relevant new feature must be registered in `src/meuharness/feature_registry.py`, define whether General access is direct/hybrid/delegated, expose the required admin tool/capability/scope when applicable, return verifiable results, and include a regression test for General discovery/access. A feature that exists only in UI/API is not considered complete for the ACTIS agent-first architecture.
 
 ## `[ SKILLS / PROGRESSIVE DISCLOSURE ]`
 
@@ -165,6 +167,17 @@ The built-in **ACTIS Agent Bus** reuses this channel layer for persistent agent-
 When memory is enabled, successful executions can store compact cross-conversation memories in SQLite. Retrieval uses FTS5 with recency fallback and injects a bounded set of relevant memories into later Runs.
 
 Current limitation: memory is textual/lexical; there is no embedding/vector store or entity graph in this version.
+
+### Project memory MVP
+
+ACTIS can also bind an organizational project to a local repository/workspace with a versionable `.actis-memory/` wiki. Its `INDEX.md` exposes lightweight metadata first; page bodies are loaded only when lexical relevance selects them or an operator explicitly requests them. Entries are separated into `observation`, `decision`, `gotcha` and `workstream`.
+
+Agents bound to that ACTIS project automatically receive only relevant project-memory pages during execution. `observation` entries start as `unverified` and require an explicit promotion with a verification note before becoming a decision, gotcha or workstream. The General can bind, inspect, recall, write and promote project memory through the canonical `actis_* project_memory` tools.
+
+Automatic end-of-run capture/consolidation is intentionally outside this first MVP; writes are deliberate so an agent interpretation cannot silently become durable project truth.
+
+See `docs/PROJECT-MEMORY.md` for the MVP contract and operations.
+
 ## `[ WHATSAPP LOCAL-FIRST RUNTIME ]`
 
 The WhatsApp domain is no longer just “an agent opening WhatsApp Web”. The current working tree includes a local operational shadow around the browser transport:

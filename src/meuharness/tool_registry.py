@@ -15,6 +15,12 @@ TOOL_ALIASES = {
     "computer": "harness_computer",
     "computer_use": "harness_computer",
     "harness_computer": "harness_computer",
+    "pdf": "pdf_toolkit",
+    "pdf_toolkit": "pdf_toolkit",
+    "excel": "excel_toolkit",
+    "xlsx": "excel_toolkit",
+    "spreadsheet": "excel_toolkit",
+    "excel_toolkit": "excel_toolkit",
 }
 
 TOOL_CATALOG: list[dict[str, Any]] = [
@@ -59,13 +65,38 @@ TOOL_CATALOG: list[dict[str, Any]] = [
         "scopes": ["computer.view", "computer.control"],
     },
     {
+        "id": "pdf_toolkit",
+        "name": "PDF Toolkit",
+        "icon": "PDF",
+        "status": "ready",
+        "kind": "native",
+        "description": "Criação, inspeção, edição, merge e renderização verificável de PDFs locais.",
+        "capabilities": ["inspect", "create", "edit", "merge", "render"],
+        "scopes": ["pdf.read", "pdf.write"],
+    },
+    {
+        "id": "excel_toolkit",
+        "name": "Excel Toolkit",
+        "icon": "XLSX",
+        "status": "ready",
+        "kind": "native",
+        "description": "Criação, inspeção, edição e validação de planilhas Excel .xlsx com entrega por Artifacts.",
+        "capabilities": ["inspect", "create", "edit", "formulas", "formatting", "tables", "charts", "validate"],
+        "scopes": ["spreadsheet.read", "spreadsheet.write"],
+    },
+    {
         "id": "actis_admin",
         "name": "ACTIS Admin",
         "icon": "⚙",
         "status": "ready",
         "kind": "native",
-        "description": "Plano de controle completo do ACTIS GEN para o General.",
-        "capabilities": ["agents", "companies", "sectors", "projects", "context", "models", "runs", "tasks", "events", "approvals", "automations", "workflows", "conversations", "delegate"],
+        "description": "Plano de controle completo do ACTIS GEN para qualquer agente autorizado.",
+        "capabilities": [
+            "features", "agents", "companies", "company_workspace", "sectors", "projects", "context", "memory", "project_memory", "models",
+            "runs", "tasks", "events", "approvals", "automations", "workflows",
+            "connectors", "connector_admin", "channels", "channel_admin", "agent_bus",
+            "whatsapp_admin", "conversations", "delegate",
+        ],
         "scopes": ["actis.admin"],
     },
 ]

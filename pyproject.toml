@@ -15,6 +15,9 @@ dependencies = [
   "agent-framework-openai==1.14.3",
   "openai==3.13.0",
   "python-dotenv>=1,<2",
+  "pymupdf>=1.24,<2",
+  "reportlab>=4,<5",
+  "openpyxl>=3.1,<4",
 ]
 
 [project.scripts]
@@ -22,6 +25,9 @@ actis-gen = "meuharness.cli:main"
 actis-gen-web = "meuharness.web:main"
 actis-gen-smoke = "meuharness.smoke:main"
 actis-gen-scheduler = "meuharness.automation_scheduler:main"
+actis-gen-desktop = "meuharness.desktop_assistant:main"
+actis-finance-assistant = "meuharness.finance_desktop_assistant:main"
+actis-gen-whatsapp-sync = "meuharness.domains.whatsapp_sync:main"
 meuharness = "meuharness.cli:main"
 meuharness-web = "meuharness.web:main"
 meuharness-smoke = "meuharness.smoke:main"

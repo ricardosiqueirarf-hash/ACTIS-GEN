@@ -40,6 +40,9 @@ ExecutionService.execute_agent()
 | `core/` | contratos neutros, Harness, deadline e erros |
 | `adapters/maf/` | adaptação para Microsoft Agent Framework e MCPs |
 | `providers/nine_router/` | settings, client OpenAI-compatible, catálogo e probe direto |
+| `feature_registry.py` | catálogo canônico de features e contrato de acesso do General |
+| `control_tools.py` | operações administrativas `actis_*` do control plane |
+| `connectors.py` | registry persistente de integrações, health checks e acesso por agente |
 | `storage.py` | SQLite canônico e migração de JSON legado |
 | `agents.py` | agentes, organizações, conversas e Runs |
 | `contexts.py` | contexto empresa/setor/projeto/agente |
@@ -51,6 +54,18 @@ ExecutionService.execute_agent()
 | `event_bus.py` | eventos operacionais persistentes |
 | 9Router externo | autenticação de providers, catálogo e roteamento/fallback do modelo |
 
+## General como interface horizontal
+
+O General não deve depender de uma lista mental fixa de telas. O catálogo canônico `feature_registry.py` descreve as features atuais e como o control plane deve alcançá-las. Agentes com a skill `actis.control-plane` recebem esse catálogo junto do estado vivo do sistema e podem consultar `actis_list_features` explicitamente.
+
+Existem três modos de integração:
+
+- `direct`: o General possui uma tool administrativa `actis_*` para consultar/mutar a feature;
+- `hybrid`: o General administra e inspeciona o domínio, mas ações pertencentes a um agente especializado são delegadas;
+- delegação: a capability não precisa existir no General; ele localiza/configura o agente autorizado e chama `actis_run_agent` pelo kernel canônico.
+
+Contrato para qualquer feature nova: registrar no catálogo, definir modo de acesso do General, expor capability/scope/tool quando necessário, incluir a feature no estado descobrível, retornar confirmação verificável e adicionar teste de regressão. Criar apenas UI/API sem esse caminho deixa a feature incompleta para a arquitetura agent-first do ACTIS.
+
 ## Fronteiras importantes
 
 1. `core` não depende do domínio, UI, MAF ou 9Router.
@@ -61,6 +76,8 @@ ExecutionService.execute_agent()
 6. Empresa/setor/projeto são espaços de contexto e organização; não são threads de conversa.
 7. Memória conversacional e contexto organizacional são sistemas separados.
 8. Approvals concedem scopes; não devem ser confundidos com a simples existência de uma tool no catálogo.
+9. Connectors registram acesso a sistemas externos; adapters/tools continuam responsáveis por executar capabilities específicas.
+10. O ACTIS Agent Bus reutiliza Canais como transporte persistente de comunicação agente↔agente.
 
 ## Contexto
 

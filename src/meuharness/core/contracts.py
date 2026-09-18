@@ -18,6 +18,7 @@ class HarnessRequest:
     request_id: str = field(default_factory=lambda: str(uuid4()))
     timeout_s: float = 30.0
     max_output_tokens: int = 256
+    tool_choice: str | dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.prompt, str) or not self.prompt.strip():
@@ -35,6 +36,12 @@ class HarnessRequest:
             raise ValueError("timeout_s must be finite and positive")
         if type(self.max_output_tokens) is not int or self.max_output_tokens < 1:
             raise ValueError("max_output_tokens must be a positive integer")
+        if self.tool_choice is not None:
+            if isinstance(self.tool_choice, str):
+                if self.tool_choice not in {"auto", "required", "none"}:
+                    raise ValueError("tool_choice string must be auto, required or none")
+            elif not isinstance(self.tool_choice, dict):
+                raise TypeError("tool_choice must be a string, JSON object or None")
         if not isinstance(self.context, dict):
             raise TypeError("context must be a JSON object")
         try:

@@ -1,0 +1,19 @@
+[Unit]
+Description=ColorGlass Finance ERP local
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lowkanta/ACTIS-GEN
+Environment=PYTHONPATH=/home/lowkanta/ACTIS-GEN/src
+ExecStart=/home/lowkanta/ACTIS-GEN/.venv/bin/python -m meuharness.finance_erp_web --host 127.0.0.1 --port 8770
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lowkanta/.local/share/actis-gen /home/lowkanta/.local/share/unicred-bank-bridge
+
+[Install]
+WantedBy=default.target

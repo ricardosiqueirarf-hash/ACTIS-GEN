@@ -84,6 +84,9 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_started
         ON workflow_runs(workflow_id, started_at DESC);
         """)
+        from meuharness.enterprise import FOUNDATION_SCHEMA
+
+        conn.executescript(FOUNDATION_SCHEMA)
 
 
 def load_collection(name: str) -> list[dict[str, Any]]:
@@ -112,6 +115,38 @@ def save_collection(name: str, items: list[dict[str, Any]]) -> None:
                 for index, item in enumerate(items)
             ],
         )
+
+
+def mutate_collection(name: str, mutator) -> Any:
+    """Atomically read, mutate and rewrite one collection.
+
+    The BEGIN IMMEDIATE transaction prevents concurrent read-modify-write callers
+    from overwriting each other's updates, including callers in other processes.
+    The mutator receives the current list and may change it in place.
+    """
+    init_db()
+    with _LOCK, connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT payload FROM collections WHERE name=? ORDER BY position ASC",
+            (name,),
+        ).fetchall()
+        items = [json.loads(row["payload"]) for row in rows]
+        result = mutator(items)
+        conn.execute("DELETE FROM collections WHERE name=?", (name,))
+        conn.executemany(
+            "INSERT INTO collections(name,item_id,payload,position) VALUES(?,?,?,?)",
+            [
+                (
+                    name,
+                    str(item.get("id") or f"row-{index}"),
+                    json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+                    index,
+                )
+                for index, item in enumerate(items)
+            ],
+        )
+        return result
 
 
 def collection_empty(name: str) -> bool:
