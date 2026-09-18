@@ -5,6 +5,9 @@ const subtitle = $("#pageSubtitle");
 const banner = $("#sourceBanner");
 const refreshBtn = $("#refreshBtn");
 const refreshERP = $("#refreshReceivablesBtn");
+const accountDialog = $("#accountDialog");
+const accountForm = $("#accountForm");
+let ACCOUNT_CREATE_TARGET = "";
 let DATA = null;
 let VIEW = new URLSearchParams(location.search).get("view") || "overview";
 
@@ -86,7 +89,7 @@ function renderBank(){
 function renderReconciliation(){
   const r=DATA.reconciliation||{}, c=r.counts||{}, a=r.amounts||{};
   const accounts=(DATA.chart_of_accounts||[]).filter((x)=>x.active!==false);
-  const opts='<option value="">Escolher conta...</option>'+accounts.map((x)=>'<option value="'+esc(x.code)+'">'+esc(x.code+" · "+x.name)+'</option>').join("");
+  const opts='<option value="">Escolher conta...</option><option value="__create__">＋ Criar nova conta...</option>'+accounts.map((x)=>'<option value="'+esc(x.code)+'">'+esc(x.code+" · "+x.name)+'</option>').join("");
   const rows=(DATA.transactions||[]).filter((t)=>t.reconciliation_status!=="confirmed").map((t)=>'<tr data-recon-row><td>'+esc(t.date)+'</td><td>'+esc(t.description)+'</td><td>'+pill(t.direction==="credit"?"Crédito":"Débito",t.direction==="credit"?"good":"bad")+'</td><td class="money">'+money(Math.abs(t.amount||0))+'</td><td><select class="recon-account">'+opts+'</select></td><td><input class="recon-note" placeholder="O que foi isso?"></td><td><button class="recon-confirm" data-key="'+esc(t.bank_transaction_key)+'">MARCAR</button></td></tr>');
   const coverage=r.total_transactions?Math.round((c.confirmed||0)/r.total_transactions*100):0;
   let html='<div class="grid kpis">'+kpi("Confirmados",num(c.confirmed||0),money(((a.confirmed||{}).credits||0)+((a.confirmed||{}).debits||0)),"good")+kpi("Propostos",num(c.proposed||0),"aguardando confirmação","warn")+kpi("Não conciliados",num(c.unreconciled||0),"precisam de classificação",c.unreconciled?"warn":"good")+kpi("Cobertura",coverage+"%",r.complete?"período fechado":"período em aberto",r.complete?"good":"warn")+'</div>';
@@ -135,7 +138,39 @@ function renderDRE(){
 }
 function renderChart(){
   const a=DATA.chart_of_accounts||[];
-  content.innerHTML='<div class="section-head"><h2>Plano de contas gerencial</h2><span>'+a.length+' contas ativas</span></div><div class="account-grid">'+a.map((x)=>'<div class="account"><code>'+esc(x.code)+'</code><b>'+esc(x.name)+'</b><small>DRE: '+esc(x.dre_group)+' · Caixa: '+esc(x.cashflow_group)+'</small></div>').join("")+'</div>';
+  content.innerHTML='<div class="section-head"><h2>Plano de contas gerencial</h2><div><span>'+a.length+' contas ativas</span> <button id="createAccountBtn" class="button primary">+ Nova conta</button></div></div><div class="account-grid">'+a.map((x)=>'<div class="account"><code>'+esc(x.code)+'</code><b>'+esc(x.name)+'</b><small>DRE: '+esc(x.dre_group)+' · Caixa: '+esc(x.cashflow_group)+'</small></div>').join("")+'</div>';
+}
+function openAccountDialog(targetKey=""){
+  ACCOUNT_CREATE_TARGET=targetKey||"";
+  accountForm.reset();
+  $("#accountNature").value="asset";
+  $("#accountDre").value="non_dre";
+  $("#accountCashflow").value="operating";
+  $("#accountError").classList.add("hidden");
+  accountDialog.showModal();
+  setTimeout(()=>$("#accountCode").focus(),0);
+}
+function closeAccountDialog(){ ACCOUNT_CREATE_TARGET=""; accountDialog.close(); }
+async function createAccount(){
+  const payload={
+    code:$("#accountCode").value.trim(), name:$("#accountName").value.trim(),
+    nature:$("#accountNature").value, dre_group:$("#accountDre").value,
+    cashflow_group:$("#accountCashflow").value
+  };
+  const err=$("#accountError"), save=$("#accountSave");
+  if(!payload.code||!payload.name){err.textContent="Informe código e nome.";err.classList.remove("hidden");return;}
+  save.disabled=true; save.textContent="Criando...";
+  try{
+    const r=await fetch("/api/chart/account",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const data=await r.json(); if(!r.ok||!data.ok) throw new Error(data.error||"Falha ao criar conta");
+    const target=ACCOUNT_CREATE_TARGET; accountDialog.close(); ACCOUNT_CREATE_TARGET="";
+    await load();
+    if(target){
+      const row=[...document.querySelectorAll("[data-recon-row]")].find((x)=>x.querySelector(".recon-confirm")?.dataset.key===target);
+      if(row) row.querySelector(".recon-account").value=data.account.code;
+    }
+  }catch(e){err.textContent=e.message;err.classList.remove("hidden");}
+  finally{save.disabled=false;save.textContent="Criar conta";}
 }
 function render(){
   if(!viewMeta[VIEW]) VIEW="overview";
@@ -163,7 +198,17 @@ $("#nav").addEventListener("click",(e)=>{
   document.querySelectorAll(".nav-item").forEach((x)=>x.classList.remove("active"));
   b.classList.add("active"); VIEW=b.dataset.view; if(DATA)render();
 });
+content.addEventListener("change",(e)=>{
+  const select=e.target.closest(".recon-account");
+  if(!select||select.value!=="__create__")return;
+  const row=select.closest("[data-recon-row]");
+  const key=row?.querySelector(".recon-confirm")?.dataset.key||"";
+  select.value="";
+  openAccountDialog(key);
+});
 content.addEventListener("click",async(e)=>{
+  const createBtn=e.target.closest("#createAccountBtn");
+  if(createBtn){openAccountDialog("");return;}
   const b=e.target.closest(".recon-confirm"); if(!b)return;
   const row=b.closest("[data-recon-row]");
   const account=row.querySelector(".recon-account").value;
@@ -178,6 +223,10 @@ content.addEventListener("click",async(e)=>{
     await load();
   }catch(err){b.disabled=false;b.classList.remove("saving");b.classList.add("error");b.textContent="ERRO";alert(err.message);}
 });
+accountForm.addEventListener("submit",(e)=>{e.preventDefault();createAccount();});
+$("#accountCancel").addEventListener("click",closeAccountDialog);
+$("#accountCancelX").addEventListener("click",closeAccountDialog);
+accountDialog.addEventListener("cancel",(e)=>{e.preventDefault();closeAccountDialog();});
 refreshBtn.addEventListener("click",load);
 $("#dateFrom").addEventListener("change",load);
 $("#dateTo").addEventListener("change",load);

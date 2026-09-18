@@ -22,6 +22,7 @@ ACCOUNT_COLLECTION = "colorglass_chart_of_accounts"
 LEDGER_COLLECTION = "colorglass_cash_events"
 
 DEFAULT_ACCOUNTS = (
+    ("1.1.01", "Adiantamentos a empregados", "asset", "non_dre", "operating"),
     ("3.1.01", "Receita de vendas", "income", "revenue", "operating"),
     ("4.1.01", "CMV - Alumínio", "expense", "cogs", "operating"),
     ("4.1.02", "CMV - Vidros", "expense", "cogs", "operating"),

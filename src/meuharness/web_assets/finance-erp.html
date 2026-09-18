@@ -52,6 +52,27 @@
     </section>
   </main>
 </div>
+
+<dialog id="accountDialog" class="account-dialog">
+  <form id="accountForm" class="account-form">
+    <div class="account-dialog-head">
+      <div><b>Criar conta</b><span>Adicione ao plano de contas sem sair da conciliação.</span></div>
+      <button type="button" id="accountCancelX" class="dialog-x" aria-label="Fechar">×</button>
+    </div>
+    <div class="account-form-grid">
+      <label><span>Código</span><input id="accountCode" placeholder="1.1.02" required></label>
+      <label class="wide"><span>Nome</span><input id="accountName" placeholder="Ex.: Adiantamento a funcionário" required></label>
+      <label><span>Natureza</span><select id="accountNature"><option value="asset">Ativo</option><option value="liability">Passivo</option><option value="income">Receita</option><option value="expense">Despesa</option><option value="equity">Patrimônio</option><option value="transfer">Transferência</option><option value="other">Outro</option></select></label>
+      <label><span>DRE</span><select id="accountDre"><option value="non_dre">Não entra na DRE</option><option value="revenue">Receita</option><option value="cogs">CMV</option><option value="opex">Despesa operacional</option><option value="financial">Financeiro</option><option value="taxes">Impostos</option></select></label>
+      <label><span>Fluxo de caixa</span><select id="accountCashflow"><option value="operating">Operacional</option><option value="investing">Investimento</option><option value="financing">Financiamento</option><option value="transfer">Transferência</option><option value="unclassified">Não classificado</option></select></label>
+    </div>
+    <div id="accountError" class="form-error hidden"></div>
+    <div class="account-dialog-actions">
+      <button type="button" id="accountCancel" class="button ghost">Cancelar</button>
+      <button type="submit" id="accountSave" class="button primary">Criar conta</button>
+    </div>
+  </form>
+</dialog>
 <script src="/finance-erp.js"></script>
 </body>
 </html>

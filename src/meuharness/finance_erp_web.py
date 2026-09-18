@@ -23,6 +23,7 @@ from meuharness.domains.colorglass_finance_reporting import (
     list_payables,
     reconciliation_report,
     reconcile_bank_transaction,
+    upsert_chart_account,
 )
 
 AGENT_ID = "financeiro-colorglass"
@@ -226,6 +227,20 @@ class FinanceERPHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/receivables/refresh":
                 self._json(200, _refresh_receivables())
+                return
+            if parsed.path == "/api/chart/account":
+                length = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                result = upsert_chart_account(
+                    AGENT_ID,
+                    code=str(payload.get("code") or ""),
+                    name=str(payload.get("name") or ""),
+                    nature=str(payload.get("nature") or "other"),
+                    dre_group=str(payload.get("dre_group") or "non_dre"),
+                    cashflow_group=str(payload.get("cashflow_group") or "unclassified"),
+                    active=True,
+                )
+                self._json(200, {"ok": True, "account": result})
                 return
             if parsed.path == "/api/reconciliation/confirm":
                 length = int(self.headers.get("Content-Length") or 0)

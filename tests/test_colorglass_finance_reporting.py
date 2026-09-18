@@ -248,3 +248,24 @@ def test_confirmed_receivable_is_not_double_counted_in_forecast(tmp_path, monkey
         "fin", official_receivables=receivables
     )
     assert position["receivables"]["adjusted_open_total"] == 0
+
+
+def test_chart_of_accounts_includes_employee_advances_and_allows_custom_accounts(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    accounts = reporting.list_chart_of_accounts("fin")
+    advance = next(item for item in accounts if item["code"] == "1.1.01")
+    assert advance["name"] == "Adiantamentos a empregados"
+    assert advance["nature"] == "asset"
+    assert advance["dre_group"] == "non_dre"
+    assert advance["cashflow_group"] == "operating"
+
+    custom = reporting.upsert_chart_account(
+        "fin",
+        code="1.1.02",
+        name="Adiantamento especial",
+        nature="asset",
+        dre_group="non_dre",
+        cashflow_group="operating",
+    )
+    assert custom["code"] == "1.1.02"
+    assert any(item["code"] == "1.1.02" for item in reporting.list_chart_of_accounts("fin"))
