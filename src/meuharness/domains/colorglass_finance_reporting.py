@@ -413,6 +413,7 @@ def _upsert_bank_ledger(
     competence_date: str,
     target_type: str,
     target_ref: str,
+    order_ref: str = "",
 ) -> str:
     key = str(bank["external_key"])
     ledger_id = f"bank:{key}"
@@ -443,7 +444,7 @@ def _upsert_bank_ledger(
             "category": str(account.get("name") or ""),
             "account_code": str(account.get("code") or ""),
             "counterparty": "",
-            "document_ref": "",
+            "document_ref": str(order_ref or ""),
             "operation_ref": target_ref if target_type == "operation" else "",
             "source": "unicred",
             "source_ref": key,
@@ -451,6 +452,7 @@ def _upsert_bank_ledger(
             "reconciliation_status": "confirmed",
             "target_type": target_type,
             "target_ref": target_ref,
+            "order_ref": str(order_ref or ""),
             "updated_at": _now(),
         })
         return str(existing["id"])
@@ -465,6 +467,7 @@ def reconcile_bank_transaction(
     account_code: str,
     target_type: str = "other",
     target_ref: str = "",
+    order_ref: str = "",
     competence_date: str = "",
     notes: str = "",
     human_confirmed: bool = False,
@@ -474,9 +477,18 @@ def reconcile_bank_transaction(
     accounts = _account_map(agent_id)
     if account_code not in accounts:
         raise ValueError("Conta financeira inexistente no plano de contas")
+    account = accounts[account_code]
     status = "confirmed" if human_confirmed else "proposed"
     competence = _date_value(competence_date, str(bank["posted_at"]))
     target_type = str(target_type or "other").strip().lower()
+    target_ref = str(target_ref or "").strip()
+    order_ref = str(order_ref or "").strip()
+    requires_order = (
+        str(account.get("dre_group") or "").strip().lower() == "revenue"
+        or str(account.get("nature") or "").strip().lower() == "income"
+    )
+    if requires_order and not order_ref:
+        raise ValueError("Receita de vendas exige vínculo obrigatório com um pedido válido pelo ID")
     now = _now()
 
     def mutate(items: list[dict[str, Any]]):
@@ -497,7 +509,8 @@ def reconcile_bank_transaction(
             "status": status,
             "account_code": account_code,
             "target_type": target_type,
-            "target_ref": str(target_ref or "").strip(),
+            "target_ref": target_ref,
+            "order_ref": order_ref,
             "competence_date": competence,
             "notes": str(notes or "").strip(),
             "bank_date": str(bank["posted_at"]),
@@ -533,7 +546,8 @@ def reconcile_bank_transaction(
             account=accounts[account_code],
             competence_date=competence,
             target_type=target_type,
-            target_ref=str(target_ref or ""),
+            target_ref=target_ref,
+            order_ref=order_ref,
         )
     return reconciliation
 def reconciliation_report(

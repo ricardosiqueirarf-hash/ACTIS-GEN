@@ -111,7 +111,9 @@ td.money{text-align:right;font-variant-numeric:tabular-nums}
   .grid.kpis,.account-grid{grid-template-columns:1fr}
   .period{width:100%;justify-content:space-between}
 }
-.recon-account,.recon-note{background:#0d1117;color:#d9e2ee;border:1px solid #2b3542;border-radius:6px;padding:7px;min-width:170px}
+.recon-account,.recon-order,.recon-note{background:#0d1117;color:#d9e2ee;border:1px solid #2b3542;border-radius:6px;padding:7px;min-width:170px}
+.recon-order{min-width:150px;border-color:#365d43}
+.recon-order:required{box-shadow:inset 3px 0 0 #22c55e}
 .recon-note{min-width:220px}
 .recon-confirm{background:#183321;color:#8ff0ad;border:1px solid #285d3b;border-radius:6px;padding:7px 10px;font-weight:700;cursor:pointer;min-width:82px;transition:background .12s ease,border-color .12s ease,color .12s ease}
 .recon-confirm:disabled{opacity:.6;cursor:wait}

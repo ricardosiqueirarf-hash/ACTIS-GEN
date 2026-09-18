@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import subprocess
 import threading
 import time
@@ -222,6 +223,7 @@ class FinanceAssistant(Gtk.Window):
         self.preserve_agent_reply = False
         self.selected_account_code = ""
         self.selected_account_name = ""
+        self.selected_account_requires_order = False
         self.state_hash = ""
         self.poll_source_id: int | None = None
         self.poll_generation = 0
@@ -305,6 +307,16 @@ class FinanceAssistant(Gtk.Window):
         picker.pack_start(self.account_empty, False, False, 0)
         self.account_revealer.add(picker)
         self.panel.pack_start(self.account_revealer, False, False, 0)
+
+        self.order_revealer = Gtk.Revealer()
+        self.order_revealer.set_reveal_child(False)
+        self.order_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.order_revealer.set_transition_duration(140)
+        self.order_ref = Gtk.Entry()
+        self.order_ref.set_placeholder_text("ID do pedido (obrigatório para receita de vendas)")
+        self.order_ref.connect("activate", lambda *_: self._mark_direct())
+        self.order_revealer.add(self.order_ref)
+        self.panel.pack_start(self.order_revealer, False, False, 0)
 
         self.reply = Gtk.Entry()
         self.reply.set_placeholder_text("Responda: ex. frete, alumínio, retirada do sócio...")
@@ -492,6 +504,7 @@ class FinanceAssistant(Gtk.Window):
         if self.selected_account_code not in valid_codes:
             self.selected_account_code = ""
             self.selected_account_name = ""
+            self.selected_account_requires_order = False
         self.account_button.set_label(self._account_label())
         self.account_button.set_sensitive(bool(self.accounts))
         for item in self.accounts:
@@ -545,9 +558,19 @@ class FinanceAssistant(Gtk.Window):
             return
         self.selected_account_code = code
         self.selected_account_name = str(item.get("name") or "")
+        self.selected_account_requires_order = (
+            str(item.get("dre_group") or "").strip().lower() == "revenue"
+            or str(item.get("nature") or "").strip().lower() == "income"
+        )
         self.account_button.set_label(self._account_label())
         self.account_revealer.set_reveal_child(False)
-        self.reply.grab_focus()
+        self.order_revealer.set_reveal_child(self.selected_account_requires_order)
+        if self.selected_account_requires_order:
+            self.agent_reply.set_text("Receita de vendas: informe também o ID do pedido.")
+            self.order_ref.grab_focus()
+        else:
+            self.order_ref.set_text("")
+            self.reply.grab_focus()
 
     def _refresh_transaction_ui(self, keep_reply: bool = False, reset_account: bool = False) -> None:
         tx = self.current or {}
@@ -561,8 +584,11 @@ class FinanceAssistant(Gtk.Window):
         if reset_account:
             self.selected_account_code = ""
             self.selected_account_name = ""
+            self.selected_account_requires_order = False
+            self.order_ref.set_text("")
         self._rebuild_account_rows()
         self.account_revealer.set_reveal_child(False)
+        self.order_revealer.set_reveal_child(self.selected_account_requires_order)
         if not keep_reply:
             self.reply.set_text("")
             self.agent_reply.set_text("Você pode responder em texto ou escolher a conta e clicar MARCAR.")
@@ -574,10 +600,23 @@ class FinanceAssistant(Gtk.Window):
         if not account_code:
             self.agent_reply.set_text("Escolha a conta primeiro.")
             return
+        order_ref = self.order_ref.get_text().strip()
+        notes = self.reply.get_text().strip()
+        if self.selected_account_requires_order and not order_ref:
+            match = re.search(r"\bpedido\s*#?\s*([0-9A-Za-z_-]+)", notes, re.IGNORECASE)
+            if match:
+                order_ref = match.group(1)
+                self.order_ref.set_text(order_ref)
+        if self.selected_account_requires_order and not order_ref:
+            self.order_revealer.set_reveal_child(True)
+            self.agent_reply.set_text("Receita de vendas exige o ID do pedido.")
+            self.order_ref.grab_focus()
+            return
         payload = {
             "bank_transaction_key": self.current.get("bank_transaction_key"),
             "account_code": account_code,
-            "notes": self.reply.get_text().strip(),
+            "order_ref": order_ref,
+            "notes": notes,
         }
         self.busy = True
         self.state.set_text("● SALVANDO")
@@ -617,7 +656,14 @@ class FinanceAssistant(Gtk.Window):
         try:
             tx = self.current or {}
             accounts = "; ".join(
-                f"{a.get('code')}={a.get('name')}" for a in self.accounts if a.get("code")
+                (
+                    f"{a.get('code')}={a.get('name')}"
+                    + (" [EXIGE order_ref com ID do pedido]" if (
+                        str(a.get("dre_group") or "").strip().lower() == "revenue"
+                        or str(a.get("nature") or "").strip().lower() == "income"
+                    ) else "")
+                )
+                for a in self.accounts if a.get("code")
             )
             prompt = (
                 "Estamos conciliando UMA transação bancária. "
@@ -628,8 +674,10 @@ class FinanceAssistant(Gtk.Window):
                 f"O humano respondeu: {answer!r}. "
                 "Se a resposta deixar a classificação inequívoca, use finance_reconcile_transaction "
                 "para esta chave, com o account_code correto, notes igual à resposta do humano e "
-                "human_confirmed=true. Se houver ambiguidade real, NÃO confirme: faça apenas uma "
-                "pergunta curta e objetiva para destravar."
+                "human_confirmed=true. REGRA OBRIGATÓRIA: para qualquer conta de receita/vendas, "
+                "passe também order_ref com o ID/número do pedido informado pelo humano. Se for venda "
+                "e o humano não informou o pedido, NÃO confirme; pergunte somente qual é o ID do pedido. "
+                "Se houver outra ambiguidade real, NÃO confirme: faça apenas uma pergunta curta e objetiva."
             )
             conversation = self._ensure_conversation()
             result = http_json(

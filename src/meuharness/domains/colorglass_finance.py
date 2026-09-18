@@ -140,6 +140,38 @@ def official_receivables(agent_id: str, *, period: str = "aberto", search: str =
     return dict(result) if isinstance(result, dict) else {"ok": False, "status": "invalid_response"}
 
 
+def official_order(agent_id: str, order_ref: str) -> dict[str, Any]:
+    """Resolva um pedido oficial da ColorGlass e devolva seu ID canônico."""
+    company_id = _company_for_agent(agent_id)
+    session_agent = next((
+        item for item in list_agents()
+        if str(item.get("company_id") or "") == company_id
+        and "colorglass.quotation" in list(item.get("skills") or [])
+    ), None)
+    if not session_agent:
+        return {"ok": False, "status": "session_provider_not_found"}
+    value = str(order_ref or "").strip()
+    if not value:
+        return {"ok": False, "status": "order_id_required"}
+    from meuharness.colorglass_quotation_tools import _eval
+    ref = json.dumps(value, ensure_ascii=False)
+    expr = """(async()=>{const ref=%s;const token=localStorage.getItem('USER_TOKEN')||localStorage.getItem('ADMIN_TOKEN')||'';if(!token)return {ok:false,status:'auth_required'};const api=(typeof API_BASE!=='undefined'&&API_BASE)||'https://colorglass.onrender.com';let r;try{r=await fetch(api+'/api/orcamentos',{headers:{Authorization:'Bearer '+token}})}catch(e){return {ok:false,status:'network_error',error:String(e)}};if(r.status===401||r.status===403)return {ok:false,status:'auth_required'};if(!r.ok)return {ok:false,status:'network_error',http_status:r.status};const d=await r.json().catch(()=>({}));const rows=Array.isArray(d?.orcamentos)?d.orcamentos:[];const item=rows.find(x=>String(x.id)===String(ref))||rows.find(x=>String(x.numero_pedido)===String(ref));return item?{ok:true,id:item.id,numero_pedido:item.numero_pedido,cliente:item.cliente_nome}:{ok:false,status:'order_not_found'}})()""" % ref
+    result = _eval(str(session_agent["id"]), expr, await_promise=True)
+    if not isinstance(result, dict):
+        return {"ok": False, "status": "invalid_response"}
+    if not result.get("ok"):
+        return dict(result)
+    canonical_id = str(result.get("id") or "").strip()
+    if not canonical_id:
+        return {"ok": False, "status": "order_id_missing"}
+    return {
+        "ok": True,
+        "id": canonical_id,
+        "numero_pedido": result.get("numero_pedido"),
+        "cliente": result.get("cliente"),
+    }
+
+
 def update_operation_finance(agent_id: str, operation_ref: str, *, total: float | None = None,
                              paid: float | None = None, due_date: str = "",
                              boleto_status: str = "") -> dict[str, Any]:
@@ -239,15 +271,28 @@ def build_finance_tools(agent_id: str) -> list[object]:
 
     def finance_reconcile_transaction(bank_transaction_key: str, account_code: str,
                                       target_type: str = "other", target_ref: str = "",
-                                      competence_date: str = "", notes: str = "",
+                                      order_ref: str = "", competence_date: str = "", notes: str = "",
                                       human_confirmed: bool = False) -> str:
-        """Proponha ou confirme conciliação; confirmação real exige human_confirmed=true."""
+        """Proponha ou confirme conciliação; receita de vendas exige order_ref de pedido oficial."""
+        accounts = {str(item.get("code") or ""): item for item in list_chart_of_accounts(agent_id, active_only=False)}
+        account = accounts.get(str(account_code or "").strip())
+        canonical_order_ref = str(order_ref or "").strip()
+        if account and (
+            str(account.get("dre_group") or "").strip().lower() == "revenue"
+            or str(account.get("nature") or "").strip().lower() == "income"
+        ):
+            if not canonical_order_ref:
+                raise ValueError("Receita de vendas exige o ID do pedido")
+            resolved = official_order(agent_id, canonical_order_ref)
+            if resolved.get("ok"):
+                canonical_order_ref = str(resolved["id"])
         return json.dumps(reconcile_bank_transaction(
             agent_id,
             bank_transaction_key=bank_transaction_key,
             account_code=account_code,
             target_type=target_type,
             target_ref=target_ref,
+            order_ref=canonical_order_ref,
             competence_date=competence_date,
             notes=notes,
             human_confirmed=human_confirmed,
@@ -443,9 +488,9 @@ def build_finance_tools(agent_id: str) -> list[object]:
         """Prepare a janela bancária isolada. Login continua sendo exclusivamente manual."""
         return json.dumps(prepare_bank_login(), ensure_ascii=False, default=str)
 
-    def finance_bank_daily_sync() -> str:
-        """Importe extrato + snapshot DDA completo; sucesso só quando persistência for verificada."""
-        return json.dumps(daily_bank_sync(), ensure_ascii=False, default=str)
+    def finance_bank_daily_sync(force: bool = False) -> str:
+        """Importe extrato + snapshot DDA completo; force=true repete mesmo com snapshot válido hoje."""
+        return json.dumps(daily_bank_sync(force=force), ensure_ascii=False, default=str)
 
     tools.extend([
         finance_bank_sync_status,

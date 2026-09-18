@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from meuharness.domains.colorglass_finance import official_receivables
+from meuharness.domains.colorglass_finance import official_order, official_receivables
 from meuharness.domains.colorglass_finance_reporting import (
     bank_balance,
     cashflow_report,
@@ -245,19 +245,40 @@ class FinanceERPHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/reconciliation/confirm":
                 length = int(self.headers.get("Content-Length") or 0)
                 payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                account_code = str(payload.get("account_code") or "").strip()
+                accounts = {str(item.get("code") or ""): item for item in list_chart_of_accounts(AGENT_ID, active_only=False)}
+                account = accounts.get(account_code)
+                if account is None:
+                    raise ValueError("Conta financeira inexistente no plano de contas")
+                order_ref = str(payload.get("order_ref") or "").strip()
+                order = None
+                if (
+                    str(account.get("dre_group") or "").strip().lower() == "revenue"
+                    or str(account.get("nature") or "").strip().lower() == "income"
+                ):
+                    if not order_ref:
+                        raise ValueError("Receita de vendas exige o ID do pedido")
+                    order = official_order(AGENT_ID, order_ref)
+                    if order.get("ok"):
+                        order_ref = str(order.get("id") or order_ref)
+                    else:
+                        order = {**dict(order or {}), "provided_ref": order_ref, "verified": False}
                 result = reconcile_bank_transaction(
                     AGENT_ID,
                     bank_transaction_key=str(payload.get("bank_transaction_key") or ""),
-                    account_code=str(payload.get("account_code") or ""),
+                    account_code=account_code,
                     target_type=str(payload.get("target_type") or "other"),
                     target_ref=str(payload.get("target_ref") or ""),
+                    order_ref=order_ref,
                     competence_date=str(payload.get("competence_date") or ""),
                     notes=str(payload.get("notes") or ""),
                     human_confirmed=True,
                 )
-                self._json(200, {"ok": True, "reconciliation": result})
+                self._json(200, {"ok": True, "reconciliation": result, "order": order})
                 return
             self._json(404, {"ok": False, "error": "not_found"})
+        except ValueError as exc:
+            self._json(400, {"ok": False, "error": str(exc)})
         except Exception as exc:
             self._json(500, {"ok": False, "error": str(exc)})
 

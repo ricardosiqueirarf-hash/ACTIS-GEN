@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from meuharness import storage
 from meuharness.domains import colorglass_finance_reporting as reporting
 
@@ -69,6 +71,7 @@ def test_bank_source_is_read_only_and_reconciliation_is_separate(tmp_path, monke
         account_code="3.1.01",
         target_type="receivable",
         target_ref="rec-1",
+        order_ref="order-513",
         human_confirmed=False,
     )
     assert proposed["status"] == "proposed"
@@ -80,6 +83,7 @@ def test_bank_source_is_read_only_and_reconciliation_is_separate(tmp_path, monke
         account_code="3.1.01",
         target_type="receivable",
         target_ref="rec-1",
+        order_ref="order-513",
         competence_date="2026-09-01",
         human_confirmed=True,
     )
@@ -203,6 +207,7 @@ def test_accrual_can_be_paid_by_bank_without_duplicate_dre_entry(tmp_path, monke
         account_code="3.1.01",
         target_type="ledger",
         target_ref=entry["id"],
+        order_ref="order-513",
         competence_date="2026-09-10",
         human_confirmed=True,
     )
@@ -224,6 +229,7 @@ def test_confirmed_receivable_is_not_double_counted_in_forecast(tmp_path, monkey
         account_code="3.1.01",
         target_type="receivable",
         target_ref="r1",
+        order_ref="order-513",
         human_confirmed=True,
     )
     receivables = {
@@ -269,3 +275,31 @@ def test_chart_of_accounts_includes_employee_advances_and_allows_custom_accounts
     )
     assert custom["code"] == "1.1.02"
     assert any(item["code"] == "1.1.02" for item in reporting.list_chart_of_accounts("fin"))
+
+
+def test_sales_revenue_requires_order_ref_and_persists_it(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="pedido"):
+        reporting.reconcile_bank_transaction(
+            "fin",
+            bank_transaction_key="credit-1",
+            account_code="3.1.01",
+            target_type="other",
+            human_confirmed=True,
+        )
+
+    result = reporting.reconcile_bank_transaction(
+        "fin",
+        bank_transaction_key="credit-1",
+        account_code="3.1.01",
+        target_type="receivable",
+        target_ref="receivable-1",
+        order_ref="order-uuid-451",
+        human_confirmed=True,
+    )
+    assert result["order_ref"] == "order-uuid-451"
+    assert result["target_type"] == "receivable"
+    assert result["target_ref"] == "receivable-1"
+    ledger = storage.load_collection(reporting.LEDGER_COLLECTION)
+    assert ledger[0]["order_ref"] == "order-uuid-451"
+    assert ledger[0]["document_ref"] == "order-uuid-451"

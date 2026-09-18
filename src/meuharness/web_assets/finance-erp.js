@@ -89,11 +89,11 @@ function renderBank(){
 function renderReconciliation(){
   const r=DATA.reconciliation||{}, c=r.counts||{}, a=r.amounts||{};
   const accounts=(DATA.chart_of_accounts||[]).filter((x)=>x.active!==false);
-  const opts='<option value="">Escolher conta...</option><option value="__create__">＋ Criar nova conta...</option>'+accounts.map((x)=>'<option value="'+esc(x.code)+'">'+esc(x.code+" · "+x.name)+'</option>').join("");
-  const rows=(DATA.transactions||[]).filter((t)=>t.reconciliation_status!=="confirmed").map((t)=>'<tr data-recon-row><td>'+esc(t.date)+'</td><td>'+esc(t.description)+'</td><td>'+pill(t.direction==="credit"?"Crédito":"Débito",t.direction==="credit"?"good":"bad")+'</td><td class="money">'+money(Math.abs(t.amount||0))+'</td><td><select class="recon-account">'+opts+'</select></td><td><input class="recon-note" placeholder="O que foi isso?"></td><td><button class="recon-confirm" data-key="'+esc(t.bank_transaction_key)+'">MARCAR</button></td></tr>');
+  const opts='<option value="">Escolher conta...</option><option value="__create__">＋ Criar nova conta...</option>'+accounts.map((x)=>{const req=(String(x.dre_group||"").toLowerCase()==="revenue"||String(x.nature||"").toLowerCase()==="income")?"1":"0";return '<option value="'+esc(x.code)+'" data-order-required="'+req+'">'+esc(x.code+" · "+x.name)+'</option>';}).join("");
+  const rows=(DATA.transactions||[]).filter((t)=>t.reconciliation_status!=="confirmed").map((t)=>'<tr data-recon-row><td>'+esc(t.date)+'</td><td>'+esc(t.description)+'</td><td>'+pill(t.direction==="credit"?"Crédito":"Débito",t.direction==="credit"?"good":"bad")+'</td><td class="money">'+money(Math.abs(t.amount||0))+'</td><td><select class="recon-account">'+opts+'</select></td><td><input class="recon-order hidden" placeholder="ID do pedido *" title="Obrigatório para receita de vendas"></td><td><input class="recon-note" placeholder="O que foi isso?"></td><td><button class="recon-confirm" data-key="'+esc(t.bank_transaction_key)+'">MARCAR</button></td></tr>');
   const coverage=r.total_transactions?Math.round((c.confirmed||0)/r.total_transactions*100):0;
   let html='<div class="grid kpis">'+kpi("Confirmados",num(c.confirmed||0),money(((a.confirmed||{}).credits||0)+((a.confirmed||{}).debits||0)),"good")+kpi("Propostos",num(c.proposed||0),"aguardando confirmação","warn")+kpi("Não conciliados",num(c.unreconciled||0),"precisam de classificação",c.unreconciled?"warn":"good")+kpi("Cobertura",coverage+"%",r.complete?"período fechado":"período em aberto",r.complete?"good":"warn")+'</div>';
-  html+='<div class="section"><div class="section-head"><h2>Pendências da conciliação</h2><span>defina a conta e confirme</span></div>'+table(["Data","Descrição","Tipo","Valor","Conta","Observação",""],rows)+'</div>';
+  html+='<div class="section"><div class="section-head"><h2>Pendências da conciliação</h2><span>receita de vendas exige ID do pedido</span></div>'+table(["Data","Descrição","Tipo","Valor","Conta","Pedido (ID)","Observação",""],rows)+'</div>';
   content.innerHTML=html;
 }
 function renderReceivables(){
@@ -200,23 +200,42 @@ $("#nav").addEventListener("click",(e)=>{
 });
 content.addEventListener("change",(e)=>{
   const select=e.target.closest(".recon-account");
-  if(!select||select.value!=="__create__")return;
+  if(!select)return;
   const row=select.closest("[data-recon-row]");
-  const key=row?.querySelector(".recon-confirm")?.dataset.key||"";
-  select.value="";
-  openAccountDialog(key);
+  if(select.value==="__create__"){
+    const key=row?.querySelector(".recon-confirm")?.dataset.key||"";
+    select.value="";
+    openAccountDialog(key);
+    return;
+  }
+  const orderInput=row?.querySelector(".recon-order");
+  const requiresOrder=select.selectedOptions[0]?.dataset.orderRequired==="1";
+  if(orderInput){
+    orderInput.classList.toggle("hidden",!requiresOrder);
+    orderInput.required=requiresOrder;
+    if(!requiresOrder)orderInput.value="";
+  }
 });
 content.addEventListener("click",async(e)=>{
   const createBtn=e.target.closest("#createAccountBtn");
   if(createBtn){openAccountDialog("");return;}
   const b=e.target.closest(".recon-confirm"); if(!b)return;
   const row=b.closest("[data-recon-row]");
-  const account=row.querySelector(".recon-account").value;
+  const accountSelect=row.querySelector(".recon-account");
+  const account=accountSelect.value;
   const notes=row.querySelector(".recon-note").value.trim();
-  if(!account){row.querySelector(".recon-account").focus();return;}
+  const orderInput=row.querySelector(".recon-order");
+  const requiresOrder=accountSelect.selectedOptions[0]?.dataset.orderRequired==="1";
+  let orderRef=orderInput.value.trim();
+  if(!account){accountSelect.focus();return;}
+  if(requiresOrder&&!orderRef){
+    const match=notes.match(/\bpedido\s*#?\s*([0-9A-Za-z_-]+)/i);
+    if(match){orderRef=match[1];orderInput.value=orderRef;}
+  }
+  if(requiresOrder&&!orderRef){orderInput.classList.remove("hidden");orderInput.focus();return;}
   b.disabled=true; b.classList.add("saving"); b.textContent="SALVANDO";
   try{
-    const r=await fetch("/api/reconciliation/confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({bank_transaction_key:b.dataset.key,account_code:account,notes})});
+    const r=await fetch("/api/reconciliation/confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({bank_transaction_key:b.dataset.key,account_code:account,order_ref:orderRef,notes})});
     const payload=await r.json(); if(!r.ok||!payload.ok) throw new Error(payload.error||"Falha ao classificar");
     b.classList.remove("saving"); b.classList.add("completed"); b.textContent="CONCLUÍDO";
     await new Promise((resolve)=>setTimeout(resolve,380));
