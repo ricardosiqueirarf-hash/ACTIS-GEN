@@ -258,6 +258,21 @@ const mcpServer = http.createServer(async (req, res) => {
 
 mcpServer.listen(MCP_PORT, "127.0.0.1");
 
+function sanitizeMetadata(value, depth = 0) {
+  if (depth > 4) return "[max_depth]";
+  if (Array.isArray(value)) return value.slice(0, 32).map((v) => sanitizeMetadata(v, depth + 1));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (/key|token|secret|credential|authorization|cookie/i.test(key)) continue;
+      out[key] = sanitizeMetadata(val, depth + 1);
+    }
+    return out;
+  }
+  if (typeof value === "string" && value.length > 512) return value.slice(0, 512) + "…";
+  return value;
+}
+
 function summarizeTunnelMetrics(text) {
   const methods = {};
   let responsePost = { sum_ms: 0, count: 0 };
@@ -342,11 +357,38 @@ const publicServer = http.createServer(async (req, res) => {
       ).slice(0, 40);
       let mcp = null;
       try { mcp = await mcpResponse.json(); } catch { mcp = { status: mcpResponse.status }; }
+      let tunnelMetadata = null;
+      try {
+        if (runtimeKey && FIXED_TUNNEL_ID) {
+          const metaResponse = await fetch(
+            `https://api.openai.com/v1/tunnels/${encodeURIComponent(FIXED_TUNNEL_ID)}`,
+            {
+              headers: {
+                authorization: `Bearer ${runtimeKey}`,
+                accept: "application/json",
+                "user-agent": "mcp-edge-relay-diag/1.0",
+                "x-tunnel-client-name": "mcp-edge-relay-diag",
+                "x-tunnel-client-version": "1.0.0",
+              },
+              signal: AbortSignal.timeout(2500),
+            },
+          );
+          if (metaResponse.ok) {
+            tunnelMetadata = sanitizeMetadata(await metaResponse.json());
+          } else {
+            tunnelMetadata = { status: metaResponse.status };
+          }
+        }
+      } catch {
+        tunnelMetadata = { error: "metadata_unavailable" };
+      }
+
       return json(res, 200, {
         ...summary,
         ready: readyResponse.ok,
         mcp,
         poll_metrics: polls,
+        tunnel_metadata: tunnelMetadata,
       });
     } catch {
       return json(res, 503, { error: "metrics_unavailable" });
