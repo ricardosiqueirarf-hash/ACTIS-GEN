@@ -6,7 +6,6 @@ const PUBLIC_PORT = Number(process.env.PORT || 10000);
 const MCP_PORT = 18770;
 const TUNNEL_HEALTH_PORT = 18771;
 const FIXED_TUNNEL_ID = process.env.FIXED_TUNNEL_ID || "";
-const EDGE_BENCH_TOKEN = process.env.EDGE_BENCH_TOKEN || "";
 const MAX_BODY = 6 * 1024 * 1024;
 const LINK_STALE_MS = 35_000;
 const WORK_TIMEOUT_MS = 35_000;
@@ -259,75 +258,6 @@ const mcpServer = http.createServer(async (req, res) => {
 
 mcpServer.listen(MCP_PORT, "127.0.0.1");
 
-function sanitizeMetadata(value, depth = 0) {
-  if (depth > 4) return "[max_depth]";
-  if (Array.isArray(value)) return value.slice(0, 32).map((v) => sanitizeMetadata(v, depth + 1));
-  if (value && typeof value === "object") {
-    const out = {};
-    for (const [key, val] of Object.entries(value)) {
-      if (/key|token|secret|credential|authorization|cookie/i.test(key)) continue;
-      out[key] = sanitizeMetadata(val, depth + 1);
-    }
-    return out;
-  }
-  if (typeof value === "string" && value.length > 512) return value.slice(0, 512) + "…";
-  return value;
-}
-
-function summarizeTunnelMetrics(text) {
-  const methods = {};
-  let responsePost = { sum_ms: 0, count: 0 };
-  let commandAge = { sum_ms: 0, count: 0 };
-
-  for (const line of text.split("\n")) {
-    let m = line.match(/^command_end_to_end_latency_milliseconds_(sum|count)\{([^}]*)\}\s+([0-9.eE+-]+)$/);
-    if (m) {
-      const kind = m[1];
-      const labels = m[2];
-      const value = Number(m[3]);
-      const method = labels.match(/request_method="([^"]+)"/)?.[1] || "unknown";
-      const latencyType = labels.match(/latency_type="([^"]+)"/)?.[1] || "unknown";
-      const key = method + ":" + latencyType;
-      methods[key] ||= { method, latency_type: latencyType, sum_ms: 0, count: 0 };
-      if (kind === "sum") methods[key].sum_ms = value;
-      else methods[key].count = value;
-      continue;
-    }
-
-    m = line.match(/^commands_age_seconds_(sum|count)\{[^}]*\}\s+([0-9.eE+-]+)$/);
-    if (m) {
-      if (m[1] === "sum") commandAge.sum_ms += Number(m[2]) * 1000;
-      else commandAge.count += Number(m[2]);
-      continue;
-    }
-
-    if (line.startsWith("http_client_request_duration_seconds_") && line.includes("/response")) {
-      m = line.match(/^http_client_request_duration_seconds_(sum|count)\{[^}]*\}\s+([0-9.eE+-]+)$/);
-      if (m) {
-        if (m[1] === "sum") responsePost.sum_ms += Number(m[2]) * 1000;
-        else responsePost.count += Number(m[2]);
-      }
-    }
-  }
-
-  const methodRows = Object.values(methods).map((row) => ({
-    ...row,
-    avg_ms: row.count ? row.sum_ms / row.count : 0,
-  }));
-
-  return {
-    methods: methodRows,
-    response_post: {
-      ...responsePost,
-      avg_ms: responsePost.count ? responsePost.sum_ms / responsePost.count : 0,
-    },
-    command_age: {
-      ...commandAge,
-      avg_ms: commandAge.count ? commandAge.sum_ms / commandAge.count : 0,
-    },
-  };
-}
-
 const publicServer = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://localhost");
 
@@ -340,83 +270,6 @@ const publicServer = http.createServer(async (req, res) => {
       queued_work: workQueue.length,
       pending_work: workPending.size,
     });
-  }
-
-  if (req.method === "GET" && url.pathname === "/diag") {
-    try {
-      const [metricsResponse, mcpResponse, readyResponse] = await Promise.all([
-        fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/metrics`, { signal: AbortSignal.timeout(1500) }),
-        fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/health/mcp`, { signal: AbortSignal.timeout(1500) }),
-        fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/readyz`, { signal: AbortSignal.timeout(1500) }),
-      ]);
-      if (!metricsResponse.ok) return json(res, 503, { error: "metrics_unavailable" });
-      const body = await metricsResponse.text();
-      const summary = summarizeTunnelMetrics(body);
-      const polls = body.split("\n").filter((line) =>
-        /poll|command|control_plane/i.test(line) &&
-        /_(count|total)\{/.test(line)
-      ).slice(0, 40);
-      let mcp = null;
-      try { mcp = await mcpResponse.json(); } catch { mcp = { status: mcpResponse.status }; }
-      let tunnelMetadata = null;
-      try {
-        if (runtimeKey && FIXED_TUNNEL_ID) {
-          const metaResponse = await fetch(
-            `https://api.openai.com/v1/tunnels/${encodeURIComponent(FIXED_TUNNEL_ID)}`,
-            {
-              headers: {
-                authorization: `Bearer ${runtimeKey}`,
-                accept: "application/json",
-                "user-agent": "mcp-edge-relay-diag/1.0",
-                "x-tunnel-client-name": "mcp-edge-relay-diag",
-                "x-tunnel-client-version": "1.0.0",
-              },
-              signal: AbortSignal.timeout(2500),
-            },
-          );
-          if (metaResponse.ok) {
-            tunnelMetadata = sanitizeMetadata(await metaResponse.json());
-          } else {
-            tunnelMetadata = { status: metaResponse.status };
-          }
-        }
-      } catch {
-        tunnelMetadata = { error: "metadata_unavailable" };
-      }
-
-      return json(res, 200, {
-        ...summary,
-        ready: readyResponse.ok,
-        mcp,
-        poll_metrics: polls,
-        tunnel_metadata: tunnelMetadata,
-      });
-    } catch {
-      return json(res, 503, { error: "metrics_unavailable" });
-    }
-  }
-
-  if (req.method === "POST" && url.pathname === "/bench/get-config") {
-    const auth = req.headers.authorization || "";
-    if (!EDGE_BENCH_TOKEN || auth !== `Bearer ${EDGE_BENCH_TOKEN}`) return empty(res, 401);
-    if (!linkFresh()) return json(res, 503, { ok: false, error: "pc_link_unavailable" });
-
-    const started = performance.now();
-    try {
-      const reply = await enqueueWork("tools/call", { name: "get_config", arguments: {} });
-      const elapsedMs = performance.now() - started;
-      return json(res, 200, {
-        ok: !reply?.error,
-        elapsed_ms: Math.round(elapsedMs * 10) / 10,
-        error_code: reply?.error?.code ?? null,
-      });
-    } catch (error) {
-      return json(res, 503, {
-        ok: false,
-        elapsed_ms: Math.round((performance.now() - started) * 10) / 10,
-        error: String(error?.message || error),
-      });
-    }
   }
 
   if (req.method === "POST" && url.pathname === "/bootstrap") {
