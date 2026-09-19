@@ -258,6 +258,60 @@ const mcpServer = http.createServer(async (req, res) => {
 
 mcpServer.listen(MCP_PORT, "127.0.0.1");
 
+function summarizeTunnelMetrics(text) {
+  const methods = {};
+  let responsePost = { sum_ms: 0, count: 0 };
+  let commandAge = { sum_ms: 0, count: 0 };
+
+  for (const line of text.split("\n")) {
+    let m = line.match(/^command_end_to_end_latency_milliseconds_(sum|count)\{([^}]*)\}\s+([0-9.eE+-]+)$/);
+    if (m) {
+      const kind = m[1];
+      const labels = m[2];
+      const value = Number(m[3]);
+      const method = labels.match(/request_method="([^"]+)"/)?.[1] || "unknown";
+      const latencyType = labels.match(/latency_type="([^"]+)"/)?.[1] || "unknown";
+      const key = method + ":" + latencyType;
+      methods[key] ||= { method, latency_type: latencyType, sum_ms: 0, count: 0 };
+      if (kind === "sum") methods[key].sum_ms = value;
+      else methods[key].count = value;
+      continue;
+    }
+
+    m = line.match(/^commands_age_seconds_(sum|count)\{[^}]*\}\s+([0-9.eE+-]+)$/);
+    if (m) {
+      if (m[1] === "sum") commandAge.sum_ms += Number(m[2]) * 1000;
+      else commandAge.count += Number(m[2]);
+      continue;
+    }
+
+    if (line.startsWith("http_client_request_duration_seconds_") && line.includes("/response")) {
+      m = line.match(/^http_client_request_duration_seconds_(sum|count)\{[^}]*\}\s+([0-9.eE+-]+)$/);
+      if (m) {
+        if (m[1] === "sum") responsePost.sum_ms += Number(m[2]) * 1000;
+        else responsePost.count += Number(m[2]);
+      }
+    }
+  }
+
+  const methodRows = Object.values(methods).map((row) => ({
+    ...row,
+    avg_ms: row.count ? row.sum_ms / row.count : 0,
+  }));
+
+  return {
+    methods: methodRows,
+    response_post: {
+      ...responsePost,
+      avg_ms: responsePost.count ? responsePost.sum_ms / responsePost.count : 0,
+    },
+    command_age: {
+      ...commandAge,
+      avg_ms: commandAge.count ? commandAge.sum_ms / commandAge.count : 0,
+    },
+  };
+}
+
 const publicServer = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://localhost");
 
@@ -270,6 +324,19 @@ const publicServer = http.createServer(async (req, res) => {
       queued_work: workQueue.length,
       pending_work: workPending.size,
     });
+  }
+
+  if (req.method === "GET" && url.pathname === "/diag") {
+    try {
+      const response = await fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/metrics`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (!response.ok) return json(res, 503, { error: "metrics_unavailable" });
+      const body = await response.text();
+      return json(res, 200, summarizeTunnelMetrics(body));
+    } catch {
+      return json(res, 503, { error: "metrics_unavailable" });
+    }
   }
 
   if (req.method === "POST" && url.pathname === "/bootstrap") {
