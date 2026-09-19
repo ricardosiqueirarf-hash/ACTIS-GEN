@@ -328,12 +328,26 @@ const publicServer = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/diag") {
     try {
-      const response = await fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/metrics`, {
-        signal: AbortSignal.timeout(1500),
+      const [metricsResponse, mcpResponse, readyResponse] = await Promise.all([
+        fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/metrics`, { signal: AbortSignal.timeout(1500) }),
+        fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/health/mcp`, { signal: AbortSignal.timeout(1500) }),
+        fetch(`http://127.0.0.1:${TUNNEL_HEALTH_PORT}/readyz`, { signal: AbortSignal.timeout(1500) }),
+      ]);
+      if (!metricsResponse.ok) return json(res, 503, { error: "metrics_unavailable" });
+      const body = await metricsResponse.text();
+      const summary = summarizeTunnelMetrics(body);
+      const polls = body.split("\n").filter((line) =>
+        /poll|command|control_plane/i.test(line) &&
+        /_(count|total)\{/.test(line)
+      ).slice(0, 40);
+      let mcp = null;
+      try { mcp = await mcpResponse.json(); } catch { mcp = { status: mcpResponse.status }; }
+      return json(res, 200, {
+        ...summary,
+        ready: readyResponse.ok,
+        mcp,
+        poll_metrics: polls,
       });
-      if (!response.ok) return json(res, 503, { error: "metrics_unavailable" });
-      const body = await response.text();
-      return json(res, 200, summarizeTunnelMetrics(body));
     } catch {
       return json(res, 503, { error: "metrics_unavailable" });
     }
