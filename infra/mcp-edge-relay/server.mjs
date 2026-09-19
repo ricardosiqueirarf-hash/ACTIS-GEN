@@ -7,7 +7,7 @@ const MCP_PORT = 18770;
 const TUNNEL_HEALTH_PORT = 18771;
 const FIXED_TUNNEL_ID = process.env.FIXED_TUNNEL_ID || "";
 const MAX_BODY = 6 * 1024 * 1024;
-const LINK_STALE_MS = 90_000;
+const LINK_STALE_MS = 45_000;
 const WORK_TIMEOUT_MS = 120_000;
 
 let runtimeKey = null;
